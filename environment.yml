@@ -1,0 +1,19 @@
+name: repulse
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - numpy
+  - scipy
+  - fastapi
+  - uvicorn
+  - websockets
+  - pydantic
+  - pytest
+  - httpx
+  - python-multipart
+  - pyserial
+  - ruff
+  - pip:
+      - playwright==1.56.0

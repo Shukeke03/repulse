@@ -1,0 +1,38 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "RePulse · 启动并调试",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/run.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": true
+    },
+    {
+      "name": "RePulse · 当前测试",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": [
+        "${file}",
+        "-v"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "RePulse · QEMU GDB attach",
+      "type": "cortex-debug",
+      "request": "attach",
+      "servertype": "external",
+      "gdbTarget": "localhost:3333",
+      "executable": "${workspaceFolder}/firmware/build/qemu/repulse.elf",
+      "gdbPath": "${userHome}/miniforge3/envs/repulse/bin/arm-none-eabi-gdb",
+      "device": "Cortex-M3",
+      "showDevDebugOutput": "raw"
+    }
+  ]
+}

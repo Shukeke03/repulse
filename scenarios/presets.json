@@ -1,0 +1,8 @@
+{
+  "normal":{"title":"正常恢复","description":"合成脉率由150逐渐降至72 BPM，叠加基础噪声"},
+  "interference":{"title":"关键窗干扰","description":"t0后55至65秒周期运动干扰，保留运动量观测"},
+  "early":{"title":"起点不足","description":"建议准备2秒立即标记，验证保留真实起点；离线实验自动使用2秒准备"},
+  "detachment":{"title":"佩戴脱落","description":"t0后55至67秒低幅光学波动；接触阈值未标定时用质量原因描述"},
+  "gap":{"title":"采样缺口","description":"t0后59至61秒丢样"},
+  "timeout":{"title":"传感器超时","description":"t0后55至67秒可观察驱动故障"}
+}

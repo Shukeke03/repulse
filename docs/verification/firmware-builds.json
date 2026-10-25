@@ -1,0 +1,15 @@
+{
+  "qemu_version": "11.0.1",
+  "gcc_version": "Arm GNU Toolchain14.3.Rel1 GCC14.3.1 20250623",
+  "freertos_version": "V11.2.0",
+  "builds": {
+    "qemu": {
+      "elf_sha256": "b359cd98d0356cfc754bc99203d891e6d0d43768e064c57e162e7b017727bf7b",
+      "scope": "latest UART polling transport smoke tested; same DSP/source/state implementation as full-cycle verification"
+    },
+    "stm32": {
+      "elf_sha256": "a5094eb38e6e0d6cb7f23044cf715929356d1b61579162ad5c95e99e871f7a4f",
+      "scope": "latest UART polling transport smoke tested; same DSP/source/state implementation as full-cycle verification"
+    }
+  }
+}

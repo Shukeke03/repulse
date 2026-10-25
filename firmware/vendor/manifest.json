@@ -1,0 +1,11 @@
+{
+  "name": "FreeRTOS-Kernel",
+  "version": "V11.2.0",
+  "upstream": "https://github.com/FreeRTOS/FreeRTOS-Kernel",
+  "commit": "0adc196d4bd52a2d91102b525b0aafc1e14a2386",
+  "license": "MIT",
+  "retained_ports": [
+    "portable/GCC/ARM_CM3",
+    "portable/GCC/ARM_CM4F"
+  ]
+}

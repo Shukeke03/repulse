@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "repulse"
+version = "0.1.0"
+description = "RePulse 复脉 — 运动恢复关键时间窗监护系统"
+requires-python = ">=3.12"
+dependencies = ["fastapi", "uvicorn[standard]", "pydantic>=2", "numpy", "scipy", "pyserial"]
+
+[project.optional-dependencies]
+dev = ["pytest", "httpx", "ruff", "playwright==1.56.0"]
+
+[tool.setuptools.packages.find]
+include = ["backend*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 110
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]

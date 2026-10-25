@@ -1,0 +1,35 @@
+{
+  "python.defaultInterpreterPath": "${userHome}/miniforge3/envs/repulse/bin/python",
+  "python.terminal.activateEnvironment": true,
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestArgs": [
+    "tests/unit",
+    "tests/api"
+  ],
+  "C_Cpp.default.compilerPath": "${userHome}/miniforge3/envs/repulse/bin/arm-none-eabi-gcc",
+  "C_Cpp.default.includePath": [
+    "${workspaceFolder}/firmware/common",
+    "${workspaceFolder}/firmware/vendor/FreeRTOS-Kernel/include",
+    "${workspaceFolder}/firmware/vendor/FreeRTOS-Kernel/portable/GCC/ARM_CM3"
+  ],
+  "C_Cpp.default.defines": [
+    "REPULSE_QEMU=1"
+  ],
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/.pytest_cache": true
+  },
+  "search.exclude": {
+    "firmware/vendor": true,
+    "data": true
+  },
+  "terminal.integrated.env.osx": {
+    "PATH": "${userHome}/miniforge3/envs/repulse/bin:${env:PATH}",
+    "PLAYWRIGHT_BROWSERS_PATH": "${userHome}/miniforge3/envs/repulse/share/playwright-browsers"
+  },
+  "terminal.integrated.env.linux": {
+    "PATH": "${userHome}/miniforge3/envs/repulse/bin:${env:PATH}",
+    "PLAYWRIGHT_BROWSERS_PATH": "${userHome}/miniforge3/envs/repulse/share/playwright-browsers"
+  }
+}

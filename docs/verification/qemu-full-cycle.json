@@ -1,0 +1,193 @@
+{
+  "status": "PASS",
+  "target": "mps2-an385",
+  "kernel": "FreeRTOS V11.2.0",
+  "state": "COMPLETED",
+  "t0_us": 8681000,
+  "sample_count": 13270,
+  "duration_seconds": 204.07,
+  "comparisons": [
+    {
+      "center_s": 0,
+      "firmware": {
+        "valid": true,
+        "pulse_bpm": 150,
+        "reasons": [],
+        "available_us": 12700000,
+        "start_us": 4681000,
+        "end_us": 12681000,
+        "id": "window_0",
+        "center_s": 0,
+        "center_seconds": 0,
+        "status": "VALID"
+      },
+      "python_offline": {
+        "valid": true,
+        "pulse_bpm": 150.0,
+        "reasons": [],
+        "reason_codes": [],
+        "quality": "VALID",
+        "state": "VALID",
+        "status": "VALID",
+        "start_us": 4681000,
+        "end_us": 12681000,
+        "support_start_us": 4681000,
+        "support_end_us": 12681000,
+        "available_us": 12690000,
+        "sample_count": 800,
+        "segment_ids": [
+          1
+        ],
+        "warmup_start_us": 0,
+        "algorithm_version": "repulse-dsp-1.0",
+        "ibi_count": 19,
+        "autocorrelation": 0.94426,
+        "ibi_variability": 0.0,
+        "id": "window_0",
+        "center_seconds": 0,
+        "center_us": 8681000,
+        "nominal_start_us": 4681000,
+        "nominal_end_us": 12681000
+      }
+    },
+    {
+      "center_s": 60,
+      "firmware": {
+        "valid": true,
+        "pulse_bpm": 94,
+        "reasons": [],
+        "available_us": 72700000,
+        "start_us": 64681000,
+        "end_us": 72681000,
+        "id": "window_60",
+        "center_s": 60,
+        "center_seconds": 60,
+        "status": "VALID"
+      },
+      "python_offline": {
+        "valid": true,
+        "pulse_bpm": 93.75,
+        "reasons": [],
+        "reason_codes": [],
+        "quality": "VALID",
+        "state": "VALID",
+        "status": "VALID",
+        "start_us": 64681000,
+        "end_us": 72681000,
+        "support_start_us": 64681000,
+        "support_end_us": 72681000,
+        "available_us": 72690000,
+        "sample_count": 800,
+        "segment_ids": [
+          4
+        ],
+        "warmup_start_us": 62690000,
+        "algorithm_version": "repulse-dsp-1.0",
+        "ibi_count": 12,
+        "autocorrelation": 0.91614,
+        "ibi_variability": 0.00781,
+        "id": "window_60",
+        "center_seconds": 60,
+        "center_us": 68681000,
+        "nominal_start_us": 64681000,
+        "nominal_end_us": 72681000
+      }
+    },
+    {
+      "center_s": 120,
+      "firmware": {
+        "valid": true,
+        "pulse_bpm": 78,
+        "reasons": [],
+        "available_us": 132700000,
+        "start_us": 124681000,
+        "end_us": 132681000,
+        "id": "window_120",
+        "center_s": 120,
+        "center_seconds": 120,
+        "status": "VALID"
+      },
+      "python_offline": {
+        "valid": true,
+        "pulse_bpm": 77.92,
+        "reasons": [],
+        "reason_codes": [],
+        "quality": "VALID",
+        "state": "VALID",
+        "status": "VALID",
+        "start_us": 124681000,
+        "end_us": 132681000,
+        "support_start_us": 124681000,
+        "support_end_us": 132681000,
+        "available_us": 132690000,
+        "sample_count": 800,
+        "segment_ids": [
+          7
+        ],
+        "warmup_start_us": 122690000,
+        "algorithm_version": "repulse-dsp-1.0",
+        "ibi_count": 9,
+        "autocorrelation": 0.90551,
+        "ibi_variability": 0.0,
+        "id": "window_120",
+        "center_seconds": 120,
+        "center_us": 128681000,
+        "nominal_start_us": 124681000,
+        "nominal_end_us": 132681000
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "name": "Acquisition",
+      "priority": 6,
+      "heartbeat": 1353,
+      "stack_high_water_words": 332,
+      "state": 2
+    },
+    {
+      "name": "DSP",
+      "priority": 5,
+      "heartbeat": 1327,
+      "stack_high_water_words": 488,
+      "state": 2
+    },
+    {
+      "name": "Session",
+      "priority": 4,
+      "heartbeat": 6768,
+      "stack_high_water_words": 450,
+      "state": 2
+    },
+    {
+      "name": "Feedback",
+      "priority": 3,
+      "heartbeat": 1353,
+      "stack_high_water_words": 472,
+      "state": 2
+    },
+    {
+      "name": "UI",
+      "priority": 2,
+      "heartbeat": 1353,
+      "stack_high_water_words": 732,
+      "state": 2
+    },
+    {
+      "name": "System",
+      "priority": 1,
+      "heartbeat": 6766,
+      "stack_high_water_words": 500,
+      "state": 0
+    }
+  ],
+  "diagnostics": {
+    "raw_queue": 0,
+    "raw_drops": 0,
+    "telemetry_drops": 0,
+    "sample_seq": 13270
+  },
+  "data_directory": "/var/folders/46/5wsmp0453dg9gp3jzf3lmkq00000gn/T/repulse-qemu-verification-wqaqwyrk",
+  "verification_clock": "Default QEMU virtual clock; full 124 guest seconds, wall time recorded separately",
+  "validation_scope": "Complete seeded-source recovery and C DSP against Python offline on identical observations; subsequent UART polling-only adjustment independently smoke-tested"
+}

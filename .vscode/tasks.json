@@ -1,0 +1,152 @@
+{
+  "version": "2.0.0",
+  "options": {
+    "cwd": "${workspaceFolder}",
+    "env": {
+      "PATH": "${userHome}/miniforge3/envs/repulse/bin:${env:PATH}",
+      "PLAYWRIGHT_BROWSERS_PATH": "${userHome}/miniforge3/envs/repulse/share/playwright-browsers"
+    }
+  },
+  "tasks": [
+    {
+      "label": "Run App",
+      "type": "process",
+      "command": "${userHome}/miniforge3/envs/repulse/bin/python",
+      "args": [
+        "run.py"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "Run Unit Tests",
+      "type": "process",
+      "command": "${userHome}/miniforge3/envs/repulse/bin/python",
+      "args": [
+        "-m",
+        "pytest",
+        "tests/unit"
+      ],
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Run API Tests",
+      "type": "process",
+      "command": "${userHome}/miniforge3/envs/repulse/bin/python",
+      "args": [
+        "-m",
+        "pytest",
+        "tests/api"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Run UI Tests",
+      "type": "process",
+      "command": "${userHome}/miniforge3/envs/repulse/bin/python",
+      "args": [
+        "-m",
+        "pytest",
+        "tests/e2e/browser_test.py"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Run Quick Compare",
+      "type": "process",
+      "command": "${userHome}/miniforge3/envs/repulse/bin/python",
+      "args": [
+        "-m",
+        "scripts.quick_compare"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Build QEMU",
+      "type": "process",
+      "command": "make",
+      "args": [
+        "-C",
+        "firmware",
+        "TARGET=qemu"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": [
+        "$gcc"
+      ]
+    },
+    {
+      "label": "Run QEMU",
+      "type": "process",
+      "command": "make",
+      "args": [
+        "-C",
+        "firmware",
+        "TARGET=qemu",
+        "run"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "Debug QEMU Server",
+      "type": "process",
+      "command": "make",
+      "args": [
+        "-C",
+        "firmware",
+        "TARGET=qemu",
+        "debug"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "Build STM32",
+      "type": "process",
+      "command": "make",
+      "args": [
+        "-C",
+        "firmware",
+        "TARGET=stm32"
+      ],
+      "problemMatcher": [
+        "$gcc"
+      ]
+    },
+    {
+      "label": "Export Session",
+      "type": "process",
+      "command": "${userHome}/miniforge3/envs/repulse/bin/python",
+      "args": [
+        "-m",
+        "scripts.export_session",
+        "${input:sessionId}"
+      ],
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "sessionId",
+      "type": "promptString",
+      "description": "记录ID（从记录详情复制）"
+    }
+  ]
+}

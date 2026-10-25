@@ -1,0 +1,16 @@
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.pyc
+.DS_Store
+data/*
+!data/.gitkeep
+firmware/build/
+firmware/**/build/
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+*.egg-info/
+tests/e2e/artifacts/
