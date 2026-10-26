@@ -163,6 +163,12 @@ ruff check backend tests scripts
 
 VS Code打开 `repulse.code-workspace`，安装推荐的Python、Pylance、Debugpy；固件开发另用C/C++与Cortex-Debug。选择 `repulse` 环境解释器后，可使用F5调试或“终端 → 运行任务”中的启动、测试、比较和固件构建任务。VS Code配置默认按 `~/miniforge3/envs/repulse` 查找环境；若Miniforge安装在其他位置，选择实际解释器，并相应调整 `.vscode/settings.json`、`tasks.json` 与 `launch.json` 中的工具链和浏览器路径。
 
+### VS Code 提示无法解析 uvicorn 或启动失败
+
+确认右下角解释器显示 `repulse (3.12.x)`。若显示系统 Python 3.9 等其他环境，按 `Cmd+Shift+P`（macOS）或 `Ctrl+Shift+P`（Linux/WSL），执行 `Python: Select Interpreter`，选择 `repulse` 环境。随后重新点击运行按钮。依赖已经安装在 `repulse` 中，选择正确环境即可解析。
+
+项目调试配置已显式指定 `~/miniforge3/envs/repulse/bin/python`。使用其他安装位置时，请修改 `.vscode/launch.json` 的 `python` 路径，并在解释器选择器中选中实际环境。
+
 ## 工程目录
 
 ```text

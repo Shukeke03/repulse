@@ -1,6 +1,7 @@
 """Start RePulse on localhost. VS Code Run App uses this entry point."""
 
 import argparse
+
 import uvicorn
 
 if __name__ == "__main__":

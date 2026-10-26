@@ -8,7 +8,8 @@
       "program": "${workspaceFolder}/run.py",
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",
-      "justMyCode": true
+      "justMyCode": true,
+      "python": "${userHome}/miniforge3/envs/repulse/bin/python"
     },
     {
       "name": "RePulse · 当前测试",
@@ -21,7 +22,8 @@
       ],
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
-      "justMyCode": false
+      "justMyCode": false,
+      "python": "${userHome}/miniforge3/envs/repulse/bin/python"
     },
     {
       "name": "RePulse · QEMU GDB attach",
