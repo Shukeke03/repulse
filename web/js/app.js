@@ -1,6 +1,8 @@
+// 单页应用主模块：组织八个功能页面，管理服务快照、路由和用户操作。
 import {api, socket} from './api.js';
 import {drawChart, drawWrist, exportPNG} from './charts.js';
 
+// 共用图标、显示格式及后端状态到中文文案的映射。
 const paths = {
   pulse: '<path d="M2 12h5l3-8 4 16 3-8h5"/>',
   home: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
@@ -51,6 +53,7 @@ const explain = value => (Array.isArray(value) ? value : value ? [value] : []).m
 const localDate = value => value ? new Date(value).toLocaleString('zh-CN', {year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'}) : '—';
 const fmtBytes = value => typeof value === 'number' ? value >= 1e9 ? `${(value/1e9).toFixed(1)} GB` : value >= 1e6 ? `${(value/1e6).toFixed(2)} MB` : `${Math.round(value/1000)} KB` : '—';
 const titles = {'/':'工作台', '/monitor':'恢复过程', '/sessions':'记录库', '/replay':'记录回放', '/compare':'策略比较', '/lab':'数据与片段', '/system':'系统状态', '/settings':'设置'};
+// 仅保存当前视图状态；演示配置和最终结果以服务端记录为准。
 const state = {
   bootstrap:null, live:null, connected:false, route:'', token:0, cleanups:[],
   settings:null, settingsDirty:false, frozen:false, frozenSnapshot:null, signal:'ppg', seconds:10,
@@ -77,6 +80,7 @@ function toast(text, error = false) {
   const node = document.createElement('div'); node.className = `toast ${error ? 'error' : ''}`; node.textContent = text;
   document.querySelector('#toasts').append(node); setTimeout(() => node.remove(), error ? 7500 : 4000);
 }
+// 为异步按钮统一处理等待状态、错误提示和恢复，避免重复点击。
 async function run(button, action) {
   if (button?.disabled) return;
   const old = button?.innerHTML;
@@ -86,6 +90,7 @@ async function run(button, action) {
   finally {if (button?.isConnected) {button.disabled = false; button.innerHTML = old;}}
 }
 function navigate(path) {location.hash = `#${path}`;}
+// 创建固定导航、连接提示和页面容器，各路由只更新主内容区域。
 function shell() {
   const nav = [['/','home'], ['/monitor','pulse'], ['/sessions','archive'], ['/replay','replay'], ['/compare','compare'], ['/lab','data'], ['/system','system'], ['/settings','settings']];
   document.querySelector('#app').innerHTML = `<aside class="sidebar"><a class="brand" href="#/"><span class="brand-mark">${icon('pulse')}</span><span><strong>RePulse</strong><small>复脉 · 运动恢复监护</small></span></a><nav aria-label="主要页面">${nav.map(([path,name]) => `<a class="nav-item" href="#${path}" data-nav="${path}">${icon(name)}<span>${titles[path]}</span></a>`).join('')}</nav><div class="sidebar-foot">数据保存在本机项目目录<br>界面按原始记录时间推进</div></aside><div class="content"><header class="topbar"><div class="breadcrumb"><a href="#/">RePulse 复脉</a><span>/</span><strong id="breadcrumb-title">工作台</strong></div><div class="top-right"><span id="global-source">公开数据演示</span><span id="connection-indicator">正在连接</span></div></header><div class="connection-banner" id="connection-banner" role="status">与本地服务的连接已断开，正在重连。当前读数暂不可用；后台处理由服务继续执行。</div><main class="main" id="main" tabindex="-1"></main></div>`;
@@ -101,6 +106,7 @@ function globalState() {
   const node = document.querySelector('#global-source');
   if (node) node.textContent = active() ? `${engineText(state.live)} · ${stageNames[phaseOf(state.live)]}` : '公开数据演示';
 }
+// 读取数据目录、处理能力、默认设置与当前演示，恢复页面上下文。
 async function bootstrap() {
   const data = await api('/bootstrap');
   state.bootstrap = data; state.settings = data.defaults || state.settings || {};
@@ -108,6 +114,7 @@ async function bootstrap() {
   state.live = data.active_session || (finished(state.live) ? state.live : null);
   globalState(); return data;
 }
+// 命令携带预期版本号，防止旧页面状态覆盖服务端已发生的变化。
 async function sessionCommand(type) {
   if (!state.live) throw new Error('当前没有演示记录。');
   const record = state.live;
@@ -129,6 +136,7 @@ function metadataRows(meta) {
 function missingData() {
   return panel('本地还没有真实数据', `<p>演示需要先准备公开数据文件。文件会保存在项目的 <code>data/</code> 目录，后续运行无需联网。</p><ol class="help-list"><li>在项目终端激活 <code>repulse</code> 环境。</li><li>执行 <code>python -m scripts.download_dataset</code>。</li><li>下载完成后点击“重新检查数据”。</li></ol>${btn('重新检查数据','reload-datasets','primary','data')}`);
 }
+// 工作台：选择本地真实片段、读取策略和处理环境，再创建并启动演示。
 async function home(token) {
   const [records] = await Promise.all([api('/sessions?origin=PUBLIC_DATA&page_size=5'), bootstrap()]);
   if (!isCurrent(token)) return;
@@ -172,6 +180,7 @@ async function home(token) {
 function metric(title, value, unit, detail, cls = '') {
   return `<section class="panel metric"><h2>${title}</h2><div class="metric-value ${cls}">${value}<small>${unit}</small></div><p>${detail}</p></section>`;
 }
+// 窗口末端到达前隐藏其结果；仅查看已保存结果时允许直接展示最终值。
 function windowsHTML(record, allowSaved = false) {
   const cursor = record?.cursor_us ?? record?.engine_time_us ?? 0, t0 = t0Of(record);
   return [0,60,120].map(center => {
@@ -186,6 +195,7 @@ function windowsHTML(record, allowSaved = false) {
 function deltasHTML(record) {
   return `<div class="delta-row">${[60,120].map(center => `<div><label>起点窗口脉率 − ${center}秒窗口脉率</label><strong>${number(record?.recovery?.[`delta${center}`])}<small>BPM</small></strong></div>`).join('')}</div><p class="panel-note">BPM表示每分钟脉搏次数。任一依赖窗口不可用时，对应差值显示“—”。</p>`;
 }
+// 将三种读取策略转换为时间轴区间，周期方案按约 70 秒读取预算计算。
 function timelineHTML(record) {
   const strategy=record?.config_snapshot?.strategy || 'continuous';
   let intervals = [[0,124]];
@@ -201,6 +211,7 @@ function timelineHTML(record) {
   const cursor=Math.max(0,Math.min(124,relative(record)));
   return `<div class="timeline" aria-label="恢复段读取计划；蓝色表示读取时段，绿色表示当前记录时刻">${intervals.map(([a,b])=>`<span class="segment" style="left:${a/124*100}%;width:${(b-a)/124*100}%" title="读取${a.toFixed(1)}～${b.toFixed(1)}秒"></span>`).join('')}${[0,60,120].map(t=>`<span class="target" style="left:${t/124*100}%"><span>${t}秒</span></span>`).join('')}<span class="cursor" style="left:${cursor/124*100}%"></span></div><p class="panel-note">蓝色为策略读取时段，绿色为当前记录时刻。未读取的区间不参与本次处理。</p>`;
 }
+// 恢复过程页：初始化控制项；冻结只固定视图，不改变后台处理进度。
 function monitor() {
   main().innerHTML = `${heading('恢复过程','按原始记录时间推进真实波形；当前展示历史采集数据。',btn(state.frozen?'返回最新数据':'冻结当前视图','freeze-view','',state.frozen?'play':'pause')+btn('导出波形PNG','export-chart','','download'))}<div id="monitor-content"></div>${foot()}`;
   on('#freeze-view','click',()=>{
@@ -213,6 +224,7 @@ function monitor() {
   on('#export-chart','click',()=>run(null,()=>exportPNG(document.querySelector('#ppg-chart'),`${sourceText(state.live)} · ${metaOf(state.live).subject || ''} · ${engineText(state.live)} · 脉搏波（设备相对单位）`)));
   updateMonitor(true);
 }
+// 按当前或冻结快照更新指标、波形与腕端预览，断连时停用当前读数。
 function updateMonitor(rebuild=false) {
   const container=document.querySelector('#monitor-content'); if (!container) return;
   const current=state.live;
@@ -273,6 +285,7 @@ function bindTable() {
   document.querySelectorAll('[data-detail]').forEach(el=>el.addEventListener('click',()=>openDetail(el.dataset.detail)));
   on('#select-all','change',e=>document.querySelectorAll('.session-check').forEach(el=>el.checked=e.currentTarget.checked));
 }
+// 记录库：查询公开数据演示，提供筛选、分页、批量删除和详情入口。
 async function sessions(token) {
   main().innerHTML=`${heading('记录库','保存每次处理的配置、窗口结果、波形和事件。','<a class="btn primary" href="#/">新建演示</a>')}<section class="panel"><div class="panel-header"><h2>真实数据处理记录</h2><span id="record-count" class="badge">正在读取</span></div><form class="filterbar" id="session-search"><label class="sr-only" for="search-text">搜索名称或备注</label><input id="search-text" placeholder="搜索名称或备注"><label class="sr-only" for="status-filter">处理状态</label><select id="status-filter"><option value="">全部状态</option>${['COMPLETED','CANCELLED','INTERRUPTED','FAILED','PREPARING','RECOVERING'].map(v=>`<option value="${v}">${stageNames[v]}</option>`).join('')}</select><label class="sr-only" for="tag-filter">按标签筛选</label><input id="tag-filter" placeholder="标签"><button class="btn small" type="submit">筛选</button><button class="btn small" type="button" id="clear-filters">清除筛选</button><button class="btn small danger" type="button" id="delete-selected">删除所选</button></form><div id="sessions-table"></div><div class="pagination"><span id="pagination-label"></span><div class="button-row">${btn('上一页','prev-page','small')}${btn('下一页','next-page','small')}</div></div></section>${foot()}`;
   let page=1,total=0;
@@ -307,6 +320,7 @@ async function sessions(token) {
   await load();
 }
 
+// 关闭详情前保护未保存编辑，并释放监听、将键盘焦点还给原控件。
 function closeDrawer(force=false) {
   if(state.drawerDirty&&!force&&!confirm('备注或标签尚未保存。关闭后放弃这些修改？'))return false;
   state.drawerCleanup?.();state.drawerCleanup=null;state.drawerDirty=false;
@@ -314,6 +328,7 @@ function closeDrawer(force=false) {
   state.drawerRestore?.focus?.();state.drawerRestore=null;
   return true;
 }
+// 共用详情抽屉支持 Esc 关闭和 Tab 焦点循环，保持键盘操作完整。
 function openDialog(title,content,footer='') {
   if(!closeDrawer())return false;
   state.drawerRestore=document.activeElement;
@@ -343,6 +358,7 @@ function downloadJSON(value,name) {
   const url=URL.createObjectURL(new Blob([JSON.stringify(value,null,2)],{type:'application/json'}));
   downloadURL(url,name);setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
+// 载入单条记录，展示结果与溯源，并处理备注、标签及文件导出。
 async function openDetail(id) {
   return run(null,async()=>{
     const token=state.token;
@@ -405,11 +421,13 @@ async function openDetail(id) {
     await renderTab(tab);
   });
 }
+// 外部来源链接仅接受 HTTP(S)，同时转义地址与可见文字。
 function safeLink(url,label) {
   if(typeof url!=='string'||!/^https?:\/\//.test(url))return '未提供';
   return `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(label||url)}</a>`;
 }
 
+// 独立回放已保存记录，按游标展示过程；离开页面时释放回放资源。
 async function replay(recordId,token) {
   if(!recordId) {
     const response=await api('/sessions?origin=PUBLIC_DATA&page_size=100');
@@ -476,6 +494,7 @@ async function replay(recordId,token) {
   state.cleanups.push(stopSocket,()=>api(`/replays/${replayId}/commands`,{method:'POST',body:{type:'close'}}).catch(()=>{}));
 }
 
+// 策略比较：在相同真实片段上创建后台任务，轮询进度并提供结果导出。
 async function compare(token) {
   const datasets=dataList();
   main().innerHTML=`${heading('策略比较','对同一条真实波形分别应用三种读取策略，比较窗口可用情况和读取时长。')}${!datasets.length?missingData():`<div class="compare-layout"><section class="panel"><div class="panel-header"><h2>比较设置</h2></div><div class="panel-body"><form id="compare-form"><div class="field"><label for="compare-dataset">真实数据片段</label><select id="compare-dataset">${datasets.map(d=>`<option value="${esc(d.id)}">${esc(datasetName(d))}</option>`).join('')}</select></div><div class="field spacer"><label for="compare-phases">周期方案起始偏移（秒）</label><input id="compare-phases" value="0, 5, 10, 15"><small>填写0～19之间不重复的整数，用逗号分隔。每个偏移都执行一次三种策略的对照。</small></div><p id="compare-run-count" class="panel-note spacer">默认共12次策略运行。</p><div class="info-strip spacer">${icon('info')}<span>各策略使用相同的原始片段和恢复起点。连续读取作为工程对照，不能替代独立心电参考。</span></div><button class="btn primary full-width spacer" type="submit" id="start-compare">开始比较</button></form></div></section><div class="stack"><section class="panel"><div class="panel-header"><h2>比较进度</h2><span class="badge" id="compare-badge">尚未开始</span></div><div class="panel-body"><p class="notice-label hidden" id="compare-changed">表单已修改。下方结果仍对应任务开始时的设置。</p><div id="compare-progress">${empty('尚无比较任务','选择真实片段后开始比较。离开页面不会停止后台任务。')}</div><div class="button-row spacer">${btn('停止比较','cancel-compare','danger hidden')}${btn('导出JSON','export-compare-json','hidden','download')}${btn('导出CSV','export-compare-csv','hidden','download')}</div></div></section><section class="panel"><div class="panel-header"><h2>比较结果</h2></div><div id="compare-results">${empty('尚无结果','完成一个三策略配对后，这里显示可用率与实际读取时长。')}</div></section></div></div>`}${foot()}`;
@@ -521,6 +540,7 @@ async function compare(token) {
   if(items(previous).length)render(items(previous)[0]);
   const timer=setInterval(()=>poll().catch(error=>toast(error.message,true)),1000);state.cleanups.push(()=>clearInterval(timer));
 }
+// 汇总窗口可用率、读取时长和同片段连续读取差异，保留可比样本数。
 function compareResults(job) {
   const metrics=Array.isArray(job.metrics)?job.metrics:job.summary?.strategies||[];
   const target=document.querySelector('#compare-results');
@@ -530,6 +550,7 @@ function compareResults(job) {
   target.innerHTML=`<div class="table-wrap"><table><thead><tr><th>读取策略</th><th>起点窗口可用率</th><th>60秒窗口可用率</th><th>120秒窗口可用率</th><th>平均读取时长</th></tr></thead><tbody>${metrics.map(m=>`<tr><td><strong>${esc(strategyNames[m.strategy]||m.strategy)}</strong><span class="muted">纳入${m.runs??m.count??0}次运行</span></td>${[0,60,120].map(center=>`<td>${pct(rate(m,center))}</td>`).join('')}<td>${number(m.on_seconds??m.mean_on_seconds,2)}秒</td></tr>`).join('')}</tbody></table></div><div class="panel-body spacer"><h3>恢复段实际读取时长</h3><div class="compare-chart spacer">${metrics.map(m=>{const value=m.on_seconds??m.mean_on_seconds??0;return `<div class="bar-row"><span>${esc(strategyNames[m.strategy]||m.strategy)}</span><div class="bar-track"><div class="bar-fill ${m.strategy==='critical'?'teal':''}" style="width:${Math.min(100,value/124*100)}%"></div></div><span>${number(value,2)}秒</span></div>`;}).join('')}</div><p class="panel-note">比较区间为恢复起点后0～124秒。可用率表示该输入片段在不同读取偏移下，通过质量检查的比例，不表示医学准确率。</p><details class="spacer"><summary>查看差值可用率与完整指标</summary><div class="table-wrap"><table><thead><tr><th>策略</th><th>起点−60秒差值可用率</th><th>起点−120秒差值可用率</th></tr></thead><tbody>${metrics.map(m=>`<tr><td>${esc(strategyNames[m.strategy]||m.strategy)}</td><td>${pct(m.delta60_rate??m.delta60_availability)}</td><td>${pct(m.delta120_rate??m.delta120_availability)}</td></tr>`).join('')}</tbody></table></div><h3 class="spacer">相对连续读取结果的平均绝对差</h3><div class="table-wrap"><table><thead><tr><th>策略</th><th>起点差异</th><th>60秒差异</th><th>120秒差异</th><th>估算能耗</th></tr></thead><tbody>${metrics.map(m=>`<tr><td>${esc(strategyNames[m.strategy]||m.strategy)}</td>${[0,60,120].map(c=>`<td>${number(m.same_window_error_bpm?.[String(c)],2)} BPM<span class="muted">可比较${m.same_window_comparable_count?.[String(c)]??0}次</span></td>`).join('')}<td>${number(m.energy_estimate_mj,1)} mJ</td></tr>`).join('')}</tbody></table></div><p class="panel-note">平均绝对差只统计两种策略都有效的相同窗口，“—”表示没有可比较的窗口。能耗使用固定电流模型估算，mJ为毫焦耳，不是腕带实测值。</p></details>${job.results?.length?`<details class="spacer"><summary>查看每次运行的窗口结果和缺测原因</summary><div class="table-wrap"><table><thead><tr><th>策略</th><th>起始偏移</th><th>起点窗口</th><th>60秒窗口</th><th>120秒窗口</th></tr></thead><tbody>${job.results.map(r=>`<tr><td>${esc(strategyNames[r.strategy]||r.strategy)}</td><td>${r.phase??0}秒</td>${[0,60,120].map(center=>{const w=(r.windows||r.key_windows||[]).find(v=>(v.center_s??v.center_seconds)===center)||{};return `<td>${w.valid?`${number(w.pulse_bpm)} BPM`:esc(explain(w.reasons)||'无有效结果')}</td>`;}).join('')}</tr>`).join('')}</tbody></table></div></details>`:''}</div>`;
 }
 
+// 数据与片段：展示本地文件、来源许可及原始波形，支持下载和范围预览。
 async function dataPage(token) {
   const response=await api('/datasets');if(!isCurrent(token))return;
   const datasets=items(response);
@@ -561,6 +582,7 @@ async function dataPage(token) {
   on('#data-record','change',()=>run(null,select));on('#data-range','change',()=>run(null,preview));await select();
 }
 
+// 系统状态：展示服务、存储和处理环境的实际诊断，支持日志冻结与导出。
 async function system(token) {
   main().innerHTML=`${heading('系统状态','查看服务、数据文件与当前处理环境。',btn('重新检查','refresh-system','','system')+btn('下载诊断JSON','export-diagnostics','','download'))}<div class="grid three" id="system-summary"></div><section class="panel spacer"><div class="panel-header"><h2>任务状态</h2><span class="small" id="system-task-note"></span></div><div id="system-tasks"></div></section><section class="panel spacer"><div class="panel-header"><h2>最近处理事件</h2>${btn('冻结日志显示','pause-logs','small')}</div><div class="panel-body"><div id="system-logs" class="log-list"></div></div></section><details class="panel spacer advanced"><summary>查看数据通道、版本和原始诊断</summary><div class="panel-body" id="system-advanced"></div></details>${foot()}`;
   let latest=null,paused=false;
@@ -583,6 +605,7 @@ async function system(token) {
   await refresh();const timer=setInterval(()=>refresh().catch(()=>{}),2000);state.cleanups.push(()=>clearInterval(timer));
 }
 
+// 设置页维护未保存草稿，分别处理保存、放弃和恢复默认值。
 async function settings(token) {
   const original=await api('/settings');if(!isCurrent(token))return;
   let values=structuredClone(original),section='display';
@@ -615,6 +638,7 @@ async function settings(token) {
   state.settingsDirty=false;render();
 }
 
+// 路由切换时保护编辑、清理旧页面资源，并用令牌忽略过期异步响应。
 async function route(force=false) {
   const next=currentPath();
   if(!force&&next===state.route)return;
@@ -639,6 +663,7 @@ async function route(force=false) {
     on('#retry-route','click',()=>route(true));
   }
 }
+// 启动应用并订阅演示快照；丢弃旧序号消息，按设置频率刷新监护视图。
 async function start() {
   shell();
   try {await bootstrap();connection(true);}catch(error){connection(false);toast(error.message,true);}

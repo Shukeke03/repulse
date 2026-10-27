@@ -1,7 +1,6 @@
-"""Download only the small, curated real exercise records used by RePulse.
+"""下载项目支持的少量真实运动记录，并校验原始文件SHA256。
 
-Run from the checkout: python -m scripts.download_dataset
-All data stay under data/public (or REPULSE_DATASETS_DIR) and are Git-ignored.
+在项目根目录运行 python -m scripts.download_dataset；数据仅保存到本地数据目录。
 """
 
 from __future__ import annotations
@@ -28,6 +27,7 @@ from backend.sources.public_data import (
 
 
 def download(relative: str, destination: Path, expected: str | None = None) -> dict:
+    """复用校验通过的本地文件，下载失败时尝试官方备用地址。"""
     if destination.is_file():
         digest = hashlib.sha256(destination.read_bytes()).hexdigest()
         if expected is None or digest == expected:
@@ -38,6 +38,7 @@ def download(relative: str, destination: Path, expected: str | None = None) -> d
                 "cached": True,
             }
     destination.parent.mkdir(parents=True, exist_ok=True)
+    # 下载与校验全部成功后再替换目标文件，失败不留下不完整原件。
     temp = destination.with_suffix(destination.suffix + ".download")
     errors = []
     for base in (DOWNLOAD_BASE, FILES_BASE):
@@ -64,6 +65,7 @@ def download(relative: str, destination: Path, expected: str | None = None) -> d
 
 
 def main():
+    """按所选受试者并发下载CSV与许可信息，生成本地来源清单。"""
     parser = argparse.ArgumentParser(description="下载RePulse使用的真实运动恢复记录，不下载整套数据集")
     parser.add_argument(
         "--subjects",
@@ -86,6 +88,7 @@ def main():
         jobs.append((filename, root / "metadata" / filename, None))
     with ThreadPoolExecutor(max_workers=4) as executor:
         results = list(executor.map(lambda arguments: download(*arguments), jobs))
+    # 通过正式数据源再次校验采样率和阶段标记后，才记录下载清单。
     records = [get_dataset(dataset_id) for dataset_id in selected]
     manifest = {
         "dataset": "wearable-device-dataset",

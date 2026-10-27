@@ -1,8 +1,6 @@
-"""Read-only native-rate observations from the PhysioNet wearable exercise dataset.
+"""读取本地PhysioNet真实运动记录，保留原始采样率、正负幅值和缺测。
 
-The files are downloaded separately into project-local data/public. No synthetic
-fallback exists. BVP remains in the source's signed arbitrary units. Device HR is
-archival display information and is never an input to the signal processor.
+数据缺失时明确报错；设备HR仅用于归档与展示，不参与脉率计算。
 """
 
 from __future__ import annotations
@@ -58,9 +56,7 @@ RECORD_DEFINITIONS = {
         },
     },
 }
-# The author notebook's aerobic v1 protocol has 12 event marks. Tags 11 and 12
-# (1-based) bound the final low-resistance cooldown. The preparation recording
-# starts before the first tag; no waveform-based heuristic chooses the marker.
+# 作者有氧第一版协议中，第11、12个标记界定低阻力恢复段；起点不由波形推测。
 COOLDOWN_TAG_INDEX = 10
 PROTOCOL_EVIDENCE = {
     "source": FILES_BASE + "Wearable_Dataset.ipynb",
@@ -72,6 +68,7 @@ PROTOCOL_EVIDENCE = {
 
 
 def dataset_root() -> Path:
+    """返回项目内的数据目录，允许通过环境变量统一迁移。"""
     return (
         Path(os.environ.get("REPULSE_DATASETS_DIR", str(PROJECT / "data/public"))).resolve()
         / DATASET_NAME
@@ -85,6 +82,7 @@ def record_directory(dataset_id: str | None = None) -> Path:
 
 
 def _timestamp(value: str) -> float:
+    """兼容原始文件中的数值时间戳与ISO日期格式。"""
     text = value.strip().split(",")[0]
     try:
         return float(text)
@@ -111,6 +109,7 @@ def _check_record_id(dataset_id: str | None) -> None:
 
 @lru_cache(maxsize=4)
 def _metadata_cached(folder_string: str, fingerprint: tuple, dataset_id: str) -> dict:
+    """校验原始文件并缓存来源信息；文件大小或修改时间变化会使缓存失效。"""
     del fingerprint
     folder = Path(folder_string)
     definition = RECORD_DEFINITIONS[dataset_id]
@@ -131,6 +130,7 @@ def _metadata_cached(folder_string: str, fingerprint: tuple, dataset_id: str) ->
     tags = [_timestamp(line) for line in (folder / "tags.csv").read_text().splitlines() if line.strip()]
     if len(tags) != tag_count:
         raise ValueError(f"{subject}应包含{tag_count}个原始阶段标记，请重新下载tags.csv")
+    # 固定裁取起点前10秒与起点后124秒，各策略共享同一原始片段。
     marker = tags[marker_index]
     marker_iso = datetime.fromtimestamp(marker, timezone.utc).isoformat()
     clip_start = marker - T0_US / 1e6
@@ -217,6 +217,7 @@ def _metadata_cached(folder_string: str, fingerprint: tuple, dataset_id: str) ->
 
 
 def get_dataset(dataset_id: str | None = None) -> dict:
+    """返回已校验元数据的副本，防止调用方修改缓存。"""
     _check_record_id(dataset_id)
     folder = record_directory(dataset_id)
     if not all((folder / name).is_file() for name in EXPECTED_HASHES):
@@ -225,6 +226,7 @@ def get_dataset(dataset_id: str | None = None) -> dict:
 
 
 def list_datasets() -> list[dict]:
+    """只列出本机文件完整且校验通过的受支持记录。"""
     records = []
     for dataset_id in sorted(RECORD_DEFINITIONS, key=lambda key: key != DATASET_ID):
         try:
@@ -246,11 +248,13 @@ def _finite_or_none(value: float) -> float | None:
 
 @lru_cache(maxsize=8)
 def _basis_cached(folder_string: str, fingerprint: tuple, dataset_id: str) -> tuple:
+    """缓存不可变原始片段，避免每个策略重复解析CSV和计算运动变化量。"""
     metadata = _metadata_cached(folder_string, fingerprint, dataset_id)
     folder = Path(folder_string)
     bvp_start, bvp_hz, bvp = _load_signal(folder / "BVP.csv")
     accel_start, accel_hz, accel = _load_signal(folder / "ACC.csv")
     hr_start, hr_hz, hr = _load_signal(folder / "HR.csv")
+    # ACC换算为g，再用1秒因果均值去除缓慢变化的重力分量。
     accel_g = accel / 64.0
     gravity = np.array(accel_g[0], dtype=float)
     alpha = 1.0 - math.exp(-1.0 / accel_hz)
@@ -266,6 +270,7 @@ def _basis_cached(folder_string: str, fingerprint: tuple, dataset_id: str) -> tu
     if start_index < 0 or start_index + count > len(bvp):
         raise ValueError("原始记录不足以覆盖准备历史及完整124秒恢复过程")
     original = []
+    # 32Hz加速度与1Hz设备HR按前值保持对齐64Hz脉搏波，不插值生成BVP。
     for i in range(count):
         source_seconds = metadata["clip_start_timestamp"] + i * PERIOD_US / 1e6
         accel_index = math.floor((source_seconds - accel_start) * accel_hz + 1e-6)
@@ -283,7 +288,7 @@ def _basis_cached(folder_string: str, fingerprint: tuple, dataset_id: str) -> tu
 
 
 class DatasetSource:
-    """A deterministic file source whose values are actual downloaded observations."""
+    """为连续读取和间歇读取提供同一份真实记录，时钟与恢复起点固定。"""
 
     def __init__(self, config: dict | None = None):
         self.config = dict(config or {})
@@ -322,6 +327,7 @@ class DatasetSource:
                     "reference_bpm": reference,
                 }
             )
+            # 在DSP之前应用读取计划；每次重新开启都会建立新的连续片段。
             on = acquisition_on((stamp - self.t0_us) / 1e6, self.strategy, self.phase, width=self.width)
             available = on and value is not None
             if available and not previous_available:
@@ -345,11 +351,13 @@ class DatasetSource:
 
     @property
     def all_samples(self) -> list[dict]:
+        """返回未应用策略的独立副本，用于预览、输入校验和原始注释归档。"""
         return deepcopy(self._original)
 
     def block(
         self, start_us: int, count: int = 16, t0_us: int | None = None, faults: list[dict] | None = None
     ) -> list[dict]:
+        """按原始时间轴取块；外部起点参数不会改写已验证的恢复标记。"""
         del t0_us
         if faults:
             raise ValueError("公开记录不接受人工故障注入")

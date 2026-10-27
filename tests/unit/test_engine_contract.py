@@ -1,3 +1,4 @@
+# 验证记录时钟、固定窗口、原始值归档与回放的核心约定。
 """Native public-recording state and immutable replay contracts."""
 
 import asyncio

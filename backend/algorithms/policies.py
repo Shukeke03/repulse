@@ -1,9 +1,10 @@
-"""Acquisition plans in seconds relative to the immutable recovery marker."""
+"""按固定恢复起点安排读取时段，并计算有明确窗口依赖的脉率差值。"""
 
 from __future__ import annotations
 
 import math
 
+# 关键窗口方案总计读取70秒，预留起点、60秒和120秒窗口的预热时间。
 CRITICAL_INTERVALS = (
     (0.0, 10.0),
     (20.0, 30.0),
@@ -24,6 +25,7 @@ ALIASES = {
 
 
 def normalize_strategy(strategy: str) -> str:
+    """将历史策略别名统一为三个受支持的内部名称。"""
     value = ALIASES.get(strategy, strategy)
     if value not in {"continuous", "periodic", "critical"}:
         raise ValueError(f"Unknown acquisition strategy: {strategy}")
@@ -37,7 +39,7 @@ def acquisition_on(
     width: float | None = None,
     periodic_width: float | None = None,
 ) -> bool:
-    """Preparation is continuous; recovery uses half-open intervals, never shifts windows."""
+    """准备段连续读取；恢复段使用左闭右开区间，不移动计算窗口。"""
     strategy = normalize_strategy(strategy)
     if relative_s is None or relative_s < 0:
         return True
@@ -54,6 +56,7 @@ def acquisition_on(
 
 
 def periodic_on_seconds(width: float, phase: float, duration: float = 124.0) -> float:
+    """计算周期计划与观察区间相交后的实际读取时长。"""
     if not (0 <= width <= 20):
         raise ValueError("periodic width must be between 0 and 20 seconds")
     if not (0 <= phase < 20):
@@ -68,7 +71,7 @@ def periodic_on_seconds(width: float, phase: float, duration: float = 124.0) -> 
 def matched_periodic_width(
     phase: float = 0.0, target_seconds: float = 70.0, duration: float = 124.0
 ) -> float:
-    """Solve the *intersected* budget, including cycles crossing observation edges."""
+    """二分求解周期读取宽度，使观察区间内总时长与70秒预算匹配。"""
     if not (0 <= phase < 20) or not (0 <= target_seconds <= duration):
         raise ValueError("invalid phase or acquisition budget")
     lo, hi = 0.0, 20.0
@@ -82,6 +85,7 @@ def matched_periodic_width(
 
 
 def recovery_result(windows: list[dict]) -> dict:
+    """分别计算起点减60秒、起点减120秒；依赖窗口无效时保留缺测原因。"""
     indexed = {int(window.get("center_seconds", window.get("center", 0))): window for window in windows}
     baseline = indexed.get(0, {})
     output: dict = {"delta60": None, "delta120": None, "dependency_ids": {}, "missing_reasons": {}}

@@ -1,4 +1,4 @@
-"""Request a stable raw ZIP from the running local application."""
+"""通过本地服务导出指定处理记录的完整归档ZIP，需先启动项目。"""
 
 import argparse
 import uuid
@@ -11,6 +11,7 @@ if __name__ == "__main__":
     p.add_argument("session_id")
     args = p.parse_args()
     with httpx.Client(base_url="http://127.0.0.1:8765") as client:
+        # 由服务检查记录是否已保存，并生成包含清单的稳定归档。
         response = client.post(
             f"/api/sessions/{args.session_id}/exports",
             json={"format": "raw"},

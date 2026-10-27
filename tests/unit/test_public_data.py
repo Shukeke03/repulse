@@ -1,4 +1,4 @@
-"""Contracts on the exact downloaded public observations; no network is used by tests."""
+"""验证真实文件校验、原始时钟、策略屏蔽与副本隔离；测试不联网。"""
 
 import hashlib
 
@@ -17,6 +17,7 @@ from backend.sources.public_data import (
 
 @pytest.fixture
 def record():
+    """本地记录缺失时跳过，避免测试隐式下载数据。"""
     try:
         return DatasetSource({"dataset_id": "wearable-aerobic-s02", "strategy": "continuous"})
     except ValueError:
@@ -78,7 +79,7 @@ def test_policy_masks_before_processing_and_preserves_input_identity(record):
     assert all(r["on"] for r in rows[:640])
     on = sum(r["on"] for r in rows if r["time_us"] >= critical.t0_us) / 64
     assert on == 70
-    off_index = round(25 * 64)  # t0 +15s, outside the critical plan
+    off_index = round(25 * 64)  # 恢复起点后15秒，位于关键窗口计划之外。
     assert rows[off_index]["on"] is False
 
 
@@ -99,6 +100,7 @@ def test_missing_files_produce_empty_catalog_and_explicit_error(tmp_path, monkey
 
 
 def test_source_timestamp_and_xyz_annotations_match_original_32_hz_rows(record):
+    # 原始32Hz的同一条加速度记录应覆盖相邻两个64Hz脉搏波样本。
     folder = record_directory(record.metadata["id"])
     raw_accel = np.genfromtxt(folder / "ACC.csv", delimiter=",", skip_header=2)
     start = round(

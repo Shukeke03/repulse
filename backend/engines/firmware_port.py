@@ -1,3 +1,4 @@
+# 启动QEMU并传递真实观测，校验固件输出后归档和推送。
 """Real recorded observations processed by an actual Cortex-M3 FreeRTOS kernel.
 
 The host validates and serializes observations; it never computes live QEMU DSP.
@@ -53,10 +54,12 @@ FIRMWARE_MESSAGES = {
 }
 
 
+# 检查QEMU可执行程序和已构建固件是否存在。
 def availability():
     return Path(QEMU).is_file() and ELF.is_file()
 
 
+# 将校验后的真实观测写成带版本和CRC的固件输入。
 def write_observations(path: Path, source: DatasetSource, config: dict) -> dict:
     """Serialize only observed native-rate samples, with an immutable data clock."""
     if source.sample_hz != 64 or source.period_us != 15625:
@@ -123,6 +126,7 @@ def write_observations(path: Path, source: DatasetSource, config: dict) -> dict:
     }
 
 
+# 把FreeRTOS控制与输出适配为Web服务使用的会话接口。
 class FirmwarePort(SessionEngine):
     def __init__(self, store, config, defaults):
         if not availability():
@@ -241,6 +245,7 @@ class FirmwarePort(SessionEngine):
             raise
         self.add_event("CREATED", "真实记录已载入FreeRTOS", dataset_id=self.source.metadata["id"])
 
+    # 在独立线程读取UART控制消息，检测格式错误和背压。
     def _read(self):
         try:
             for line in self.process.stdout:
@@ -260,6 +265,7 @@ class FirmwarePort(SessionEngine):
             if not self._closing:
                 self._error = str(exc)
 
+    # 增量读取固件计算后的波形，并校验序号、时间与数值。
     def _read_output(self):
         path = self.transport_dir / "processed.bin"
         if self._output is None:
@@ -312,6 +318,7 @@ class FirmwarePort(SessionEngine):
         last = rows[-1]
         self.acquisition_state = "OFF" if not last["on"] else "WARMING" if last.get("warming") else "ON"
 
+    # 合并固件快照和事件，完成时校验完整性再保存。
     def _apply(self, message):
         kind = message.get("type")
         if kind == "snapshot":
@@ -402,6 +409,7 @@ class FirmwarePort(SessionEngine):
         elif kind == "fatal":
             self._error = message.get("code", "FIRMWARE_FATAL")
 
+    # 向固件发送控制命令并等待对应确认。
     def command(self, kind, revision):
         if revision != self.revision:
             raise DomainError("REVISION_CONFLICT", "记录状态已变化，请刷新后重试")
@@ -433,6 +441,7 @@ class FirmwarePort(SessionEngine):
                 return self.snapshot()
         raise DomainError("COMMAND_TIMEOUT", "FreeRTOS没有及时应答，请查看系统状态", 503)
 
+    # 轮询固件消息与进程状态，出错时安全结束会话。
     async def run(self):
         try:
             while not self._closing:
@@ -465,6 +474,7 @@ class FirmwarePort(SessionEngine):
             finally:
                 self._terminate()
 
+    # 在取消或主机异常时保存当前已有结果。
     def _host_finish(self, target):
         self.state, self.acquisition_state = "FINALIZING", "OFF"
         self.revision += 1
@@ -478,6 +488,7 @@ class FirmwarePort(SessionEngine):
                 raise
         self.state = target
 
+    # 限制可见样本到固件当前时间，并附上实际任务诊断。
     def snapshot(self):
         snap = super().snapshot()
         # The processed-file channel can arrive before a UART state snapshot.
@@ -525,6 +536,7 @@ class FirmwarePort(SessionEngine):
         snap["versions"].update(kernel="FreeRTOS V11.2.0", protocol=2)
         return snap
 
+    # 关闭进程与文件句柄，清理本次传输目录。
     def _terminate(self):
         if self.process.poll() is None:
             self.process.terminate()
@@ -545,6 +557,7 @@ class FirmwarePort(SessionEngine):
                     pass
         shutil.rmtree(self.transport_dir, ignore_errors=True)
 
+    # 停止通信任务并保存尚未完成的记录。
     async def close(self):
         self._closing = True
         if self.task and not self.task.done():

@@ -1,3 +1,4 @@
+/* 内核配置：抢占调度、1 kHz tick 和静态内存，不启用动态分配。 */
 #ifndef FREERTOS_CONFIG_H
 #define FREERTOS_CONFIG_H
 #include <stdint.h>
@@ -16,6 +17,7 @@ void repulse_assert(const char *,int);
 #define configUSE_MUTEXES 0
 #define configUSE_COUNTING_SEMAPHORES 0
 #define configQUEUE_REGISTRY_SIZE 8
+/* 启用栈检查与任务查询，使上报的任务诊断来自实际内核状态。 */
 #define configCHECK_FOR_STACK_OVERFLOW 2
 #define configUSE_MALLOC_FAILED_HOOK 0
 #define configSUPPORT_STATIC_ALLOCATION 1
@@ -30,6 +32,7 @@ void repulse_assert(const char *,int);
 #define INCLUDE_uxTaskGetStackHighWaterMark 1
 #define INCLUDE_eTaskGetState 1
 #define INCLUDE_xTaskGetIdleTaskHandle 1
+/* Cortex-M 中断优先级边界，以及 FreeRTOS 所需的三类异常入口。 */
 #define configPRIO_BITS 3
 #define configLIBRARY_LOWEST_INTERRUPT_PRIORITY 7
 #define configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY 5

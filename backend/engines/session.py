@@ -1,3 +1,4 @@
+# 按真实记录时间推进Python会话，管理恢复阶段、窗口结果与归档。
 """Stream a public recording with its own source clock and fixed exercise marker."""
 
 import asyncio
@@ -12,12 +13,14 @@ from backend.sources.public_data import DatasetSource
 from backend.storage.store import utcnow
 
 
+# 将业务错误及其HTTP状态统一传给接口层。
 class DomainError(Exception):
     def __init__(self, code, message, status=409):
         self.code, self.message, self.status = code, message, status
         super().__init__(message)
 
 
+# 管理一条公开记录从创建到结束的完整处理过程。
 class SessionEngine:
     def __init__(self, store, config, defaults):
         self.store = store
@@ -45,6 +48,7 @@ class SessionEngine:
         self.writer = self.store.create(self.snapshot())
         self.add_event("CREATED", "记录已创建", dataset_id=self.config["dataset_id"])
 
+    # 为当前会话记录带时间戳的状态与操作事件。
     def add_event(self, kind, message, severity="info", **payload):
         event = {
             "id": uuid.uuid4().hex,
@@ -59,6 +63,7 @@ class SessionEngine:
         if hasattr(self, "writer") and not self.writer.closed:
             self.writer.event(event)
 
+    # 校验修订号后执行开始或停止操作。
     def command(self, kind, revision):
         if revision != self.revision:
             raise DomainError("REVISION_CONFLICT", "记录状态已变化，请重新载入后重试")
@@ -82,6 +87,7 @@ class SessionEngine:
         self.store.update(self.snapshot())
         return self.snapshot()
 
+    # 到达原始阶段标记时锁定恢复起点。
     def _mark_source_event(self):
         if self.state == "PREPARING" and self.time_us >= self.source.t0_us:
             self.t0_us = self.source.t0_us
@@ -94,6 +100,7 @@ class SessionEngine:
                 phase_description=self.source.metadata.get("phase_event", {}).get("label"),
             )
 
+    # 分块读取观测，执行DSP并在固定窗口结束时保存结果。
     def advance(self, target_us):
         if self.state not in {"PREPARING", "RECOVERING"}:
             return
@@ -157,6 +164,7 @@ class SessionEngine:
         if self.time_us >= self.source.t0_us + 124_000_000:
             self.finalize("COMPLETED")
 
+    # 按播放倍率推进记录时间，定期让出事件循环。
     async def run(self):
         try:
             while self.state in {"PREPARING", "RECOVERING"}:
@@ -173,6 +181,7 @@ class SessionEngine:
             except Exception:
                 self.state = "FAILED"
 
+    # 先完成文件归档，再发布会话的最终状态。
     def finalize(self, target):
         if self.state in TERMINAL:
             return
@@ -197,6 +206,7 @@ class SessionEngine:
         self.state = target
         self.revision += 1
 
+    # 组装界面快照，补齐未到达窗口并计算数据年龄。
     def snapshot(self):
         self.seq += 1
         marker = self.source.t0_us
@@ -271,6 +281,7 @@ class SessionEngine:
             },
         }
 
+    # 停止后台任务，将尚未结束的记录保存为中断状态。
     async def close(self):
         if self.task and not self.task.done():
             self.task.cancel()

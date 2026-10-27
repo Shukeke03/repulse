@@ -1,4 +1,4 @@
-"""Repeat the three policies on the same unmodified public observations."""
+"""从命令行对同一真实片段运行三种策略，导出配对结果与汇总指标。"""
 
 import argparse
 import csv
@@ -11,6 +11,7 @@ from backend.workers.compare import compare_unit, summarize
 
 
 def main():
+    """校验周期偏移，依次完成比较并将JSON、CSV保存到项目数据目录。"""
     parser = argparse.ArgumentParser(description="公开记录的采集策略比较")
     parser.add_argument("--dataset-id", default=DEFAULT_DATASET)
     parser.add_argument("--phases", default="0,5,10,15")
@@ -23,6 +24,7 @@ def main():
     for phase in phases:
         results.extend(compare_unit(args.dataset_id, phase))
         print(f"已完成{len(results)}/{len(phases) * 3}次策略运行", flush=True)
+    # 汇总仅接受输入一致且三种策略完整的配对。
     summary = summarize(results, len(phases))
     out = Path("data/comparisons") / ("cli-" + args.dataset_id)
     out.mkdir(parents=True, exist_ok=True)

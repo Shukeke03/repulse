@@ -1,3 +1,4 @@
+# 启动隔离服务，通过真实Chromium验证主要页面与完整操作流程。
 """Real Chromium checks using the locally downloaded public exercise records."""
 
 import json

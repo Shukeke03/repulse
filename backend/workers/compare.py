@@ -1,4 +1,4 @@
-"""Paired acquisition-policy experiments on an immutable public recording."""
+"""在同一真实片段上配对运行三种读取策略，汇总窗口可用率与读取时长。"""
 
 import hashlib
 import json
@@ -15,6 +15,7 @@ STRATEGIES = ("continuous", "periodic", "critical")
 
 
 def _run(source, config):
+    """按原始采样间隔处理一个策略，统计恢复段读取预算与估算能耗。"""
     processor = Processor(config)
     samples = []
     for start in range(0, source.duration_us, 16 * source.period_us):
@@ -30,12 +31,13 @@ def _run(source, config):
         bool(s["on"]) and (i == 0 or not recovery_samples[i - 1]["on"])
         for i, s in enumerate(recovery_samples)
     )
-    # Declared engineering model; not a measurement of Empatica or STM32 power.
+    # 固定电流模型仅作工程估算，不代表Empatica或STM32的实测功耗。
     energy = 3.3 * (2.02 * on_seconds + 0.01 * (124 - on_seconds) + 5.25 * 124) + 0.5 * openings
     return windows, recovery_result(windows), on_seconds, energy
 
 
 def compare_unit(dataset_id, phase, config=None):
+    """完成一个片段与周期偏移下的三策略配对，校验未屏蔽输入一致。"""
     cfg = {**DEFAULTS, **(config or {}), "dataset_id": dataset_id, "phase": phase, "origin": "PUBLIC_DATA"}
     results = []
     for strategy in STRATEGIES:
@@ -66,6 +68,7 @@ def compare_unit(dataset_id, phase, config=None):
                 "budget_quantization_tolerance_seconds": 7 / source.sample_hz,
             }
         )
+    # 连续读取仅作工程对照；只有双方均有效的相同窗口才能计算差异。
     reference = {int(w["center_seconds"]): w for w in results[0]["windows"]}
     for row in results:
         row["same_window_error_bpm"] = {
@@ -79,6 +82,7 @@ def compare_unit(dataset_id, phase, config=None):
 
 
 def summarize(results, expected_units=None):
+    """只汇总三种策略齐全且输入哈希相同的配对，保留缺测与排除计数。"""
     groups = defaultdict(list)
     for row in results:
         groups[(row["dataset_id"], row["phase"])].append(row)

@@ -1,3 +1,4 @@
+/* 真实记录的二进制输入与固件处理结果输出；序号、时间和 CRC 共同校验完整性。 */
 #include "input.h"
 #include <stddef.h>
 #include <string.h>
@@ -41,6 +42,7 @@ static int host_open(const char *path, unsigned mode) {
     uintptr_t args[3] = {(uintptr_t)path, mode, strlen(path)};
     return host_call(0x01, args);
 }
+/* semihosting 返回未读取字节数，因此循环处理短读，无法前进即报错。 */
 static int host_read(int handle, void *data, unsigned length) {
     uint8_t *position = data;
     while (length) {
@@ -64,6 +66,7 @@ static void host_close(int handle) {
 }
 #endif
 
+/* 校验固定版本的文件头后才开放数据源，STM32 未接传感器时明确不可用。 */
 int input_open(void) {
 #ifdef REPULSE_QEMU
     reader = host_open("observations.bin", 1);
@@ -99,6 +102,7 @@ int input_open(void) {
 #endif
 }
 
+/* 按块读取并验证严格递增的样本序号和 15625 微秒间隔，末块核对完整 CRC。 */
 int input_read(InputRow *rows, unsigned count) {
 #ifdef REPULSE_QEMU
     if (reader < 0 || strcmp(failure, "NONE")) return -1;
@@ -130,6 +134,7 @@ int input_read(InputRow *rows, unsigned count) {
 #endif
 }
 
+/* 输出采集掩码、原始值及 C 滤波结果，供主机归档和独立复核。 */
 int output_write(const SampleBlock *block) {
 #ifdef REPULSE_QEMU
     OutputRow rows[16];
@@ -159,6 +164,7 @@ uint32_t input_rows(void) { return read_count; }
 uint32_t input_crc32(void) { return input_crc ^ 0xffffffffu; }
 uint32_t output_rows(void) { return written_count; }
 uint32_t output_crc32(void) { return output_crc ^ 0xffffffffu; }
+/* 正常完成、取消和初始化失败均关闭已打开的主机文件。 */
 void input_close(void) {
 #ifdef REPULSE_QEMU
     host_close(reader);

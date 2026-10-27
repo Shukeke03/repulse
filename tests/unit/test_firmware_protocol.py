@@ -21,6 +21,7 @@ from scripts.verify_qemu import verify_real_record
 ROOT = Path(__file__).resolve().parents[2]
 
 
+# ctypes 字段顺序和类型需与 dsp.h 完全一致，直接调用同一份 C 算法。
 class Sample(ctypes.Structure):
     _fields_ = [
         ("time_us", ctypes.c_uint32),
@@ -44,6 +45,7 @@ class Result(ctypes.Structure):
     ]
 
 
+# 测试仅读取已下载的公开记录，缺失时跳过，不生成替代数据。
 def real_source(dataset_id="wearable-aerobic-s02", **config):
     try:
         get_dataset(dataset_id)
@@ -52,6 +54,7 @@ def real_source(dataset_id="wearable-aerobic-s02", **config):
     return DatasetSource({"dataset_id": dataset_id, **config})
 
 
+# 将项目 DSP 编译为本机动态库，独立于 ARM 固件进程检查算法一致性。
 @pytest.fixture(scope="module")
 def c_dsp(tmp_path_factory):
     cc = shutil.which("cc")
@@ -79,6 +82,7 @@ def c_dsp(tmp_path_factory):
     return lib
 
 
+# 同一真实记录分别应用三种策略，对三个固定窗口比较有效性及有效脉率。
 @pytest.mark.parametrize("dataset_id", ["wearable-aerobic-s01", "wearable-aerobic-s02"])
 @pytest.mark.parametrize("strategy", ["continuous", "critical", "periodic"])
 def test_native_c_and_python_process_identical_real_observations(c_dsp, dataset_id, strategy):
@@ -118,6 +122,7 @@ def test_native_c_and_python_process_identical_real_observations(c_dsp, dataset_
     assert checked == [0, 60, 120]
 
 
+# 核对二进制头部、原生 64 Hz 样本、策略参数和头部/载荷双重校验。
 def test_versioned_real_input_has_exact_native_samples_and_crc(tmp_path):
     source = real_source(strategy="periodic", phase=5)
     path = tmp_path / "observations.bin"
@@ -136,6 +141,7 @@ def test_versioned_real_input_has_exact_native_samples_and_crc(tmp_path):
     assert manifest["count"] == len(source.all_samples)
 
 
+# 短流程验证真实内核任务、不可手改的恢复起点，以及取消后的资源回收。
 def test_actual_qemu_kernel_real_input_and_safe_cancel(tmp_path):
     source = real_source()
     if not availability():
@@ -182,6 +188,7 @@ def test_actual_qemu_kernel_real_input_and_safe_cancel(tmp_path):
     asyncio.run(check())
 
 
+# 固件未支持动态算法参数时必须拒绝，避免界面配置与实际处理不一致。
 def test_qemu_rejects_untransmitted_custom_algorithm_settings(tmp_path):
     if not availability():
         pytest.skip("QEMU不可用")
@@ -194,6 +201,7 @@ def test_qemu_rejects_untransmitted_custom_algorithm_settings(tmp_path):
         store.close()
 
 
+# 三种策略都执行完整记录，检查 C 发布结果和独立离线参考。
 @pytest.mark.parametrize("strategy", ["continuous", "critical", "periodic"])
 def test_actual_qemu_full_real_record_and_offline_reference(tmp_path, strategy):
     real_source()
@@ -208,6 +216,7 @@ def test_actual_qemu_full_real_record_and_offline_reference(tmp_path, strategy):
         assert report["comparisons"][2]["firmware"]["valid"]
 
 
+# 主动破坏输入头，确认在建立会话档案前报错，并清理传输目录。
 def test_actual_qemu_rejects_corrupt_input_header_before_creating_record(tmp_path, monkeypatch):
     real_source()
     if not availability():

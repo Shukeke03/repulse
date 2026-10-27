@@ -1,4 +1,4 @@
-"""Single writer storage; terminal files commit before the SQLite index."""
+"""保存处理记录与SQLite索引；结束时先落盘归档文件，再更新索引状态。"""
 
 import csv
 import hashlib
@@ -15,10 +15,12 @@ def utcnow():
 
 
 def json_text(value):
+    """统一JSON编码，保留中文并拒绝非有限数值。"""
     return json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
 
 
 def atomic_json(path, value):
+    """先写临时文件再原子替换，避免留下半份JSON。"""
     path = Path(path)
     temp = path.with_suffix(path.suffix + ".tmp")
     temp.write_text(json_text(value), encoding="utf-8")
@@ -26,6 +28,8 @@ def atomic_json(path, value):
 
 
 class Store:
+    """管理记录索引、幂等命令、设置和批量删除事务。"""
+
     def __init__(self, root):
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
@@ -50,10 +54,12 @@ class Store:
             self.db.commit()
 
     def begin_mutation(self):
+        """由API开启一次写事务，将索引更新与目录移动统一提交。"""
         self.db.execute("BEGIN IMMEDIATE")
         self.mutation_open = True
 
     def end_mutation(self, success):
+        """提交成功后清理暂存目录；失败时恢复索引和目录。"""
         self.mutation_open = False
         if success:
             try:
@@ -69,8 +75,7 @@ class Store:
                 try:
                     shutil.rmtree(trash)
                 except OSError:
-                    # The index transaction is already committed. Startup recovery
-                    # removes this unindexed trash; cleanup must not undo deletion.
+                    # 索引已经提交；残留暂存目录留待启动恢复清理，不撤销删除。
                     pass
         else:
             self.db.rollback()
@@ -83,7 +88,8 @@ class Store:
         return self.root / "sessions" / sid
 
     def recover(self):
-        # Complete or roll back an interrupted directory move used by batch delete.
+        """启动时恢复中断的删除、归档与离线任务，不自动续跑旧任务。"""
+        # 依据索引判断上次批量删除是否提交，完成清理或恢复原目录。
         for trash in self.root.glob(".trash-*"):
             sid = trash.name.removeprefix(".trash-")
             indexed = self.db.execute("SELECT 1 FROM sessions WHERE id=?", (sid,)).fetchone()
@@ -98,6 +104,7 @@ class Store:
                 manifest = self.session_dir(sid) / "manifest.json"
                 result = self.session_dir(sid) / "result.json"
                 committed = False
+                # 归档清单全部校验通过才接受已完成结果，否则标记中断。
                 if manifest.exists() and result.exists():
                     try:
                         m = json.loads(manifest.read_text())
@@ -140,7 +147,7 @@ class Store:
                         self.manifest(sid, snap["session_state"])
                 self.db.execute("UPDATE sessions SET snapshot=? WHERE id=?", (json_text(snap), sid))
         self.commit()
-        # Offline jobs cannot silently resume after a process restart.
+        # 进程重启后的离线任务明确标为中断，避免界面误认为仍在运行。
         for jid, raw in self.db.execute("SELECT id,value FROM jobs").fetchall():
             job = json.loads(raw)
             if job["status"] in {"RUNNING", "CANCELLING", "PENDING"}:
@@ -148,6 +155,7 @@ class Store:
                 self.save_job(job)
 
     def create(self, snapshot):
+        """创建独立记录目录、初始元数据和注释索引。"""
         folder = self.session_dir(snapshot["id"])
         folder.mkdir()
         atomic_json(folder / "meta.json", snapshot)
@@ -163,6 +171,7 @@ class Store:
         self.commit()
 
     def get(self, sid):
+        """合并处理快照与可编辑注释，保持波形和计算结果独立。"""
         row = self.db.execute("SELECT snapshot,annotation FROM sessions WHERE id=?", (sid,)).fetchone()
         if not row:
             return None
@@ -181,6 +190,7 @@ class Store:
         self.commit()
 
     def manifest(self, sid, status):
+        """记录各归档文件的大小与SHA256，供恢复和完整性检查使用。"""
         folder = self.session_dir(sid)
         files = [
             {"name": p.name, "size": p.stat().st_size, "sha256": hashlib.sha256(p.read_bytes()).hexdigest()}
@@ -190,6 +200,7 @@ class Store:
         atomic_json(folder / "manifest.json", {"schema_version": 1, "status": status, "files": files})
 
     def remove(self, ids):
+        """先暂存记录目录再删除索引，出错时可恢复整批目录。"""
         moved = []
         try:
             for sid in ids:
@@ -235,6 +246,7 @@ class Store:
         return [json.loads(row[0]) for row in self.db.execute("SELECT value FROM jobs").fetchall()]
 
     def read_samples(self, sid):
+        """从归档CSV恢复样本类型；兼容尚无原始时间戳与XYZ注释的旧记录。"""
         path = self.session_dir(sid) / "ppg.csv"
         if not path.exists():
             return None
@@ -265,6 +277,8 @@ class Store:
 
 
 class SessionWriter:
+    """单条处理记录的顺序写入器，统一保存波形、事件和每秒估计。"""
+
     fields = [
         "time_us",
         "seq",
@@ -296,6 +310,7 @@ class SessionWriter:
         self.closed = False
 
     def samples(self, samples):
+        """脉搏波行保留完整注释，加速度另存一份便于查看的CSV。"""
         self.csv.writerows(samples)
         self.accel.writerows(
             (s["time_us"], s.get("accel"), s.get("accel_x"), s.get("accel_y"), s.get("accel_z"))
@@ -313,6 +328,7 @@ class SessionWriter:
             f.flush()
 
     def finish(self, snapshot):
+        """同步数据文件后写入最终结果与清单，最后更新数据库状态。"""
         self.flush()
         for f in self.files.values():
             os.fsync(f.fileno())

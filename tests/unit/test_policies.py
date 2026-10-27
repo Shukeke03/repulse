@@ -1,3 +1,5 @@
+"""验证读取预算、区间边界和两个恢复差值各自的窗口依赖。"""
+
 import pytest
 
 from backend.algorithms.policies import (
@@ -10,6 +12,7 @@ from backend.algorithms.policies import (
 
 @pytest.mark.parametrize("phase", range(20))
 def test_periodic_budget_solver_matches_same_analytic_budget(phase):
+    # 所有整数偏移都按相同观察区间核算70秒预算。
     width = matched_periodic_width(phase)
     assert periodic_on_seconds(width, phase) == pytest.approx(70, abs=1e-9)
 

@@ -1,3 +1,4 @@
+# 提供本地HTTP/WebSocket接口、后台任务管理与前端静态文件。
 """Local-only RePulse API and static frontend. Run one worker."""
 
 import asyncio
@@ -40,12 +41,14 @@ from backend.storage.store import Store, atomic_json, json_text, utcnow
 PROJECT = Path(__file__).resolve().parents[2]
 
 
+# 在后台进程中执行同一真实片段的三策略比较。
 def comparison_unit(config, dataset_id, phase):
     from backend.workers.compare import compare_unit
 
     return compare_unit(dataset_id, phase, config.get("algorithm_config"))
 
 
+# 将成组比较结果转换为界面使用的统计字段。
 def aggregate(results):
     from backend.workers.compare import summarize
 
@@ -66,6 +69,7 @@ def aggregate(results):
     return output
 
 
+# 持有存储、活动会话、回放、比较任务和单实例锁。
 class Service:
     def __init__(self, data_root):
         root = Path(data_root).resolve()
@@ -100,9 +104,11 @@ class Service:
         self.logs = []
         self.exports = {}
 
+    # 返回仍在处理或保存中的唯一活动会话。
     def active(self):
         return self.engine if self.engine and self.engine.state in ACTIVE else None
 
+    # 优先读取活动快照，并合并用户保存的备注。
     def get(self, sid):
         if self.engine and self.engine.id == sid:
             snap = self.engine.snapshot()
@@ -115,6 +121,7 @@ class Service:
             raise DomainError("NOT_FOUND", "记录不存在", 404)
         return result
 
+    # 根据本地数据、QEMU程序和固件报告可用功能。
     def capabilities(self):
         available = bool(list_datasets())
         qemu = firmware_available() and available
@@ -139,6 +146,7 @@ class Service:
             "download_command": "python -m scripts.download_dataset",
         }
 
+    # 用幂等键和存储事务保护写入，重复请求返回原结果。
     async def mutate(self, request, callback):
         key = request.headers.get("Idempotency-Key")
         if not key or len(key) > 200:
@@ -163,6 +171,7 @@ class Service:
                 self.store.end_mutation(False)
                 raise
 
+    # 逐组执行比较，持续保存进度并保留完整配对。
     async def compare(self, job):
         if self.pool is None:
             self.pool = ProcessPoolExecutor(max_workers=1)
@@ -210,6 +219,7 @@ class Service:
             self.store.save_job(job)
             atomic_json(self.store.root / "comparisons" / job["id"] / "progress.json", job)
 
+    # 结束会话与后台任务，释放存储和单实例锁。
     async def close(self):
         if self.engine:
             await self.engine.close()
@@ -226,7 +236,9 @@ class Service:
         self.lockfile.close()
 
 
+# 创建应用，注册接口、异常处理与静态前端。
 def create_app(data_root=None):
+    # 在服务启动与退出时统一创建和释放运行资源。
     @asynccontextmanager
     async def lifespan(app):
         app.state.service = Service(data_root or os.environ.get("REPULSE_DATA_DIR", str(PROJECT / "data")))
@@ -238,6 +250,7 @@ def create_app(data_root=None):
     def service(request):
         return request.app.state.service
 
+    # 将业务异常转换成前端可识别的错误响应。
     @app.exception_handler(DomainError)
     async def domain_error(request, exc):
         return JSONResponse(
@@ -250,6 +263,7 @@ def create_app(data_root=None):
             },
         )
 
+    # 返回请求字段校验失败的具体位置和原因。
     @app.exception_handler(RequestValidationError)
     async def invalid(request, exc):
         return JSONResponse(
@@ -262,6 +276,7 @@ def create_app(data_root=None):
             },
         )
 
+    # 将数据源或数值错误转换为参数错误响应。
     @app.exception_handler(ValueError)
     async def invalid_data(request, exc):
         return JSONResponse(
@@ -274,6 +289,7 @@ def create_app(data_root=None):
             },
         )
 
+    # 对文件读写失败返回统一错误响应。
     @app.exception_handler(OSError)
     async def storage_error(request, exc):
         return JSONResponse(
@@ -286,6 +302,7 @@ def create_app(data_root=None):
             },
         )
 
+    # 一次提供初始设置、真实片段目录、能力和活动记录。
     @app.get("/api/bootstrap")
     async def bootstrap(request: Request):
         s = service(request)
@@ -298,10 +315,12 @@ def create_app(data_root=None):
             "datasets": list_datasets(),
         }
 
+    # 列出已下载且通过校验的公开记录。
     @app.get("/api/datasets")
     async def datasets():
         return {"items": list_datasets(), "download_command": "python -m scripts.download_dataset"}
 
+    # 按指定范围抽取原始片段用于预览。
     @app.get("/api/datasets/{dataset_id}/samples")
     async def dataset_samples(
         dataset_id: str, start_us: int = 0, end_us: int | None = None, max_points: int = 2000
@@ -327,10 +346,12 @@ def create_app(data_root=None):
             "origin": "PUBLIC_DATA",
         }
 
+    # 返回指定公开记录的来源、阶段与文件校验信息。
     @app.get("/api/datasets/{dataset_id}")
     async def dataset_detail(dataset_id: str):
         return get_dataset(dataset_id)
 
+    # 仅允许下载该记录目录中已登记的原始文件。
     @app.get("/api/datasets/{dataset_id}/files/{name}")
     async def dataset_file(dataset_id: str, name: str):
         metadata = get_dataset(dataset_id)
@@ -338,6 +359,7 @@ def create_app(data_root=None):
             raise DomainError("NOT_FOUND", "原始数据文件不存在", 404)
         return FileResponse(record_directory(dataset_id) / name, filename=f"{metadata['subject']}_{name}")
 
+    # 按执行方式创建Python或QEMU会话。
     @app.post("/api/sessions")
     async def create_session(body: SessionConfig, request: Request):
         s = service(request)
@@ -353,6 +375,7 @@ def create_app(data_root=None):
 
         return await s.mutate(request, action)
 
+    # 按搜索、状态和标签筛选记录并分页返回。
     @app.get("/api/sessions")
     async def sessions(
         request: Request,
@@ -392,11 +415,13 @@ def create_app(data_root=None):
             "page_size": page_size,
         }
 
+    # 返回指定会话的当前或已保存快照。
     @app.get("/api/sessions/{sid}/snapshot")
     @app.get("/api/sessions/{sid}")
     async def session(sid: str, request: Request):
         return service(request).get(sid)
 
+    # 通过幂等写入执行会话控制命令。
     @app.post("/api/sessions/{sid}/commands")
     async def command(sid: str, body: Command, request: Request):
         s = service(request)
@@ -417,6 +442,7 @@ def create_app(data_root=None):
 
         return await s.mutate(request, action)
 
+    # 查询已保存的幂等命令结果。
     @app.get("/api/commands/{cid}")
     async def get_command(cid: str, request: Request):
         for (raw,) in service(request).store.db.execute("SELECT result FROM commands").fetchall():
@@ -425,6 +451,7 @@ def create_app(data_root=None):
                 return result
         raise DomainError("NOT_FOUND", "命令不存在", 404)
 
+    # 更新记录名称、备注和标签。
     @app.patch("/api/sessions/{sid}/annotation")
     async def annotate(sid: str, body: Annotation, request: Request):
         s = service(request)
@@ -436,6 +463,7 @@ def create_app(data_root=None):
 
         return await s.mutate(request, action)
 
+    # 检查在用记录后整批删除，避免只删除部分记录。
     @app.post("/api/sessions/delete")
     async def delete_sessions(request: Request):
         s = service(request)
@@ -462,6 +490,7 @@ def create_app(data_root=None):
 
         return await s.mutate(request, action)
 
+    # 按记录时间范围返回波形并限制显示点数。
     @app.get("/api/sessions/{sid}/samples")
     async def samples(
         sid: str, request: Request, start_us: int = 0, end_us: int | None = None, max_points: int = 20000
@@ -485,6 +514,7 @@ def create_app(data_root=None):
             "decimation": stride,
         }
 
+    # 分页读取会话事件时间线。
     @app.get("/api/sessions/{sid}/events")
     async def events(sid: str, request: Request, cursor: int = 0, limit: int = 100):
         s = service(request)
@@ -501,6 +531,7 @@ def create_app(data_root=None):
             "total": len(items),
         }
 
+    # 生成摘要JSON、结果CSV或含清单的原始ZIP。
     @app.post("/api/sessions/{sid}/exports")
     async def export(sid: str, request: Request):
         s = service(request)
@@ -566,6 +597,7 @@ def create_app(data_root=None):
 
         return await s.mutate(request, action)
 
+    # 返回已经登记的导出文件。
     @app.get("/api/downloads/{eid}")
     async def download(eid: str, request: Request):
         if len(eid) != 32 or not all(c in "0123456789abcdef" for c in eid):
@@ -577,6 +609,7 @@ def create_app(data_root=None):
             raise DomainError("NOT_FOUND", "下载文件不存在", 404)
         return FileResponse(files[0], filename=files[0].name)
 
+    # 为已结束的真实记录创建独立回放实例。
     @app.post("/api/replays")
     async def create_replay(request: Request):
         s = service(request)
@@ -598,6 +631,7 @@ def create_app(data_root=None):
 
         return await s.mutate(request, action)
 
+    # 校验回放实例存在且租约有效。
     def get_replay(s, rid):
         replay = s.replays.get(rid)
         if not replay or replay.closed:
@@ -605,20 +639,24 @@ def create_app(data_root=None):
         replay.lease = time.monotonic()
         return replay
 
+    # 返回回放快照并续期。
     @app.get("/api/replays/{rid}")
     async def replay(rid: str, request: Request):
         return get_replay(service(request), rid).snapshot()
 
+    # 幂等处理回放播放、暂停、定位与关闭。
     @app.post("/api/replays/{rid}/commands")
     async def replay_command(rid: str, request: Request):
         s = service(request)
         body = await request.json()
         return await s.mutate(request, lambda: get_replay(s, rid).command(body))
 
+    # 列出已保存的真实数据比较任务。
     @app.get("/api/comparisons")
     async def comparisons(request: Request):
         return {"items": list(reversed(list(service(request).jobs.values())))}
 
+    # 冻结当前算法参数并启动后台比较。
     @app.post("/api/comparisons")
     async def start_comparison(body: ComparisonConfig, request: Request):
         s = service(request)
@@ -653,15 +691,18 @@ def create_app(data_root=None):
 
         return await s.mutate(request, action)
 
+    # 查找比较任务，不存在时返回业务错误。
     def get_job(s, jid):
         if jid not in s.jobs:
             raise DomainError("NOT_FOUND", "比较任务不存在", 404)
         return s.jobs[jid]
 
+    # 返回比较任务进度与已完成结果。
     @app.get("/api/comparisons/{jid}")
     async def comparison(jid: str, request: Request):
         return get_job(service(request), jid)
 
+    # 将已结束的比较任务导出为JSON或CSV。
     @app.post("/api/comparisons/{jid}/exports")
     async def comparison_export(jid: str, request: Request):
         s = service(request)
@@ -721,6 +762,7 @@ def create_app(data_root=None):
 
         return await s.mutate(request, action)
 
+    # 请求在完整配对边界停止比较。
     @app.post("/api/comparisons/{jid}/cancel")
     async def cancel_comparison(jid: str, request: Request):
         s = service(request)
@@ -735,10 +777,12 @@ def create_app(data_root=None):
 
         return await s.mutate(request, action)
 
+    # 读取当前全局默认设置。
     @app.get("/api/settings")
     async def settings(request: Request):
         return service(request).settings
 
+    # 校验设置与修订版本后保存，活动会话参数保持冻结。
     @app.put("/api/settings")
     async def save_settings(request: Request):
         s = service(request)
@@ -792,6 +836,7 @@ def create_app(data_root=None):
 
         return await s.mutate(request, action)
 
+    # 汇总存储、处理时钟、运行能力和固件诊断。
     @app.get("/api/system/status")
     async def system_status(request: Request):
         s = service(request)
@@ -848,6 +893,7 @@ def create_app(data_root=None):
             "logs": list(active.events)[-50:] if active else s.logs,
         }
 
+    # 持续推送当前会话快照。
     @app.websocket("/api/live")
     async def live(ws: WebSocket):
         await ws.accept()
@@ -860,6 +906,7 @@ def create_app(data_root=None):
         except (WebSocketDisconnect, RuntimeError):
             pass
 
+    # 持续推送指定回放快照并维护租约。
     @app.websocket("/api/replays/{rid}/live")
     async def replay_live(ws: WebSocket, rid: str):
         await ws.accept()

@@ -1,3 +1,4 @@
+# 使用独立播放时钟重算历史记录，保留原始文件和原始结果。
 """Saved-run playback with an independent clock and deterministic native-rate DSP rebuild."""
 
 import asyncio
@@ -11,6 +12,7 @@ from backend.algorithms.processor import Processor
 from backend.engines.session import DomainError
 
 
+# 管理暂停、定位、逐秒前进和重新计算的回放实例。
 class ReplayEngine:
     def __init__(self, store, source):
         if source.get("origin") != "PUBLIC_DATA":
@@ -38,6 +40,7 @@ class ReplayEngine:
         self._refresh_windows()
         self.task = asyncio.create_task(self.run())
 
+    # 仅公布当前回放游标之前已经完整到达的窗口。
     def _refresh_windows(self):
         self.windows = []
         marker = (
@@ -64,6 +67,7 @@ class ReplayEngine:
             w["center_s"] = center
             self.windows.append(w)
 
+    # 从已保存样本推进DSP；向后定位时从头重建状态。
     def rebuild(self, target):
         if target < self.cursor:
             self.processor = Processor(self.source["config_snapshot"])
@@ -78,6 +82,7 @@ class ReplayEngine:
         self.cursor = target
         self._refresh_windows()
 
+    # 处理回放控制命令，同时续期回放租约。
     def command(self, body):
         self.lease = time.monotonic()
         kind = body.get("type")
@@ -109,6 +114,7 @@ class ReplayEngine:
             raise DomainError("INVALID_PARAMETER", "未知回放命令", 422)
         return self.snapshot()
 
+    # 推进播放游标，空闲超过租约时间后结束实例。
     async def run(self):
         previous = time.monotonic()
         try:
@@ -126,6 +132,7 @@ class ReplayEngine:
         except asyncio.CancelledError:
             pass
 
+    # 返回回放计算结果，不借用原记录中的未来窗口。
     def snapshot(self):
         self.seq += 1
         snap = {k: v for k, v in self.source.items() if k not in {"waveform_tail", "events"}}

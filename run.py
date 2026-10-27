@@ -1,3 +1,4 @@
+# 本地启动入口：解析端口参数并启动前后端共用的FastAPI服务。
 """Start RePulse on localhost. VS Code Run App uses this entry point."""
 
 import argparse

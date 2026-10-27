@@ -1,3 +1,4 @@
+// HTTP 与 WebSocket 通信封装，统一向页面提供可读的错误和连接状态。
 const messages = {
   ACTIVE_SESSION_EXISTS: '已有演示正在运行，请先返回恢复过程页面。',
   SOURCE_UNAVAILABLE: '所选处理环境暂不可用，请查看系统状态。',
@@ -6,6 +7,7 @@ const messages = {
   RECORD_IN_USE: '记录正在使用，无法删除。本次没有删除任何记录。',
 };
 
+// 将请求体编码为 JSON；写操作附带幂等键，便于服务端识别重复请求。
 export async function api(path, options = {}) {
   const method = options.method || 'GET';
   const headers = {'Content-Type': 'application/json', ...options.headers};
@@ -32,6 +34,7 @@ export async function api(path, options = {}) {
   return data;
 }
 
+// 连接中断后逐步延长重试间隔，返回清理函数以释放连接与事件监听。
 export function socket(path, onData, onState) {
   let ws, retry = 0, timer, closed = false;
   function connect() {

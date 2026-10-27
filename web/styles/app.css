@@ -1,3 +1,4 @@
+/* 全站主题、基础排版与键盘焦点样式。 */
 :root {
   --navy: #192a40;
   --text: #24364c;
@@ -28,6 +29,7 @@ h3 {font-size: 14px; font-weight: 600;}
 code, pre, .mono {font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-variant-numeric: tabular-nums;}
 code {font-size: .9em; overflow-wrap: anywhere;}
 svg {width: 20px; height: 20px; flex-shrink: 0;}
+/* 桌面导航、顶栏与页面主内容布局。 */
 .sidebar {position: fixed; inset: 0 auto 0 0; width: 216px; background: var(--navy); color: #d3deed; padding: 27px 16px; display: flex; flex-direction: column; z-index: 30;}
 .brand {display: flex; gap: 12px; align-items: center; color: white; padding: 4px 10px 35px; text-decoration: none;}
 .brand:hover {text-decoration: none;}
@@ -53,6 +55,7 @@ svg {width: 20px; height: 20px; flex-shrink: 0;}
 .page-head p {margin-top: 10px; color: var(--muted); font-size: 13px; max-width: 720px; line-height: 1.85;}
 .head-actions, .button-row {display: flex; gap: 9px; align-items: center; flex-wrap: wrap;}
 .head-actions {flex-shrink: 0;}
+/* 共用按钮、栅格、面板与表单控件。 */
 .btn {display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 40px; padding: 8px 14px; border: 1px solid #d5dfec; background: white; border-radius: 7px; color: #3f5878; font-size: 12px; font-weight: 500; white-space: nowrap; line-height: 1.5;}
 .btn:hover {background: #f3f7ff; text-decoration: none;}
 .btn svg {width: 16px; height: 16px;}
@@ -111,6 +114,7 @@ svg {width: 20px; height: 20px; flex-shrink: 0;}
 .empty > svg {width: 31px; height: 31px; color: #97a9bf; margin-bottom: 11px;}
 .empty h3 {font-size: 14px; color: #425c7b;}
 .empty p {margin: 8px auto 17px; max-width: 420px; font-size: 12px; line-height: 1.9;}
+/* 记录列表的横向滚动、筛选工具栏与分页。 */
 .table-wrap {width: 100%; overflow-x: auto;}
 table {width: 100%; border-collapse: collapse; text-align: left; font-size: 12px;}
 th {font-weight: 550; color: #60758f; background: #f8fafc; padding: 12px 17px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); white-space: nowrap;}
@@ -124,6 +128,7 @@ td .muted {display: block; font-size: 11px; margin-top: 4px;}
 .filterbar #search-text {flex: 1; min-width: 160px;}
 .filterbar #tag-filter {width: 120px;}
 .pagination {border-top: 1px solid var(--line); padding: 16px 22px; display: flex; justify-content: space-between; align-items: center; gap: 15px; color: var(--muted); font-size: 12px;}
+/* 恢复过程页的指标、波形、关键窗口及读取计划。 */
 .monitor-layout {display: grid; grid-template-columns: minmax(0, 1fr) 270px; gap: 21px;}
 .active-banner {display: flex; gap: 16px; align-items: center; justify-content: space-between; background: #edf4ff; border: 1px solid #d6e4f7; border-radius: 8px; padding: 13px 17px; margin-bottom: 20px; color: #456b9b; font-size: 12px;}
 #frozen-notice {margin-bottom: 20px;}
@@ -159,6 +164,7 @@ td .muted {display: block; font-size: 11px; margin-top: 4px;}
 .timeline .target {position: absolute; width: 1px; height: 30px; top: 0; background: #86a7e9;}
 .timeline .target span {position: absolute; top: 31px; left: -8px; white-space: nowrap; color: #607b9d; font-size: 10px;}
 .timeline .cursor {position: absolute; width: 2px; height: 33px; top: 0; background: var(--teal);}
+/* 腕端外观、像素屏幕预览和按键。 */
 .wrist-panel {padding: 20px; text-align: center;}
 .wrist-panel h2 {font-size: 14px; text-align: left;}
 .watch-shell {width: 180px; padding: 17px 10px; margin: 27px auto 18px; background: linear-gradient(120deg,#334357,#142235); border: 2px solid #32465d; border-radius: 27px; position: relative; box-shadow: 0 8px 18px #20344f17;}
@@ -171,6 +177,7 @@ td .muted {display: block; font-size: 11px; margin-top: 4px;}
 .watch-key:active {background: #dce8fb;}
 .wrist-help {font-size: 10px; color: #60768f; line-height: 2;}
 .session-controls {border-top: 1px solid var(--line); padding: 16px 20px; display: flex; flex-direction: column; gap: 10px;}
+/* 事件、连接提示和页面等待或失败状态。 */
 .event-list {padding: 0; margin: 0; list-style: none;}
 .event-list li {display: flex; align-items: flex-start; gap: 13px; padding: 10px 0; border-bottom: 1px solid #edf1f6; font-size: 11px; line-height: 1.85; color: #4e6683;}
 .event-list li:last-child {border: 0;}
@@ -184,6 +191,7 @@ td .muted {display: block; font-size: 11px; margin-top: 4px;}
 .error-block {padding: 24px; background: #fff7f7; border: 1px solid #e9c9ce; border-radius: 8px; color: #963d49;}
 .error-block p {margin-bottom: 18px; font-size: 13px; line-height: 1.9;}
 .error-block .btn + .btn {margin-left: 8px;}
+/* 共用详情抽屉、选项卡与诊断文本。 */
 .drawer-backdrop {position: fixed; inset: 0; z-index: 70; background: #172a4250;}
 .drawer {position: fixed; inset: 0 0 0 auto; z-index: 71; width: min(640px,100%); background: #fff; display: flex; flex-direction: column; box-shadow: -12px 0 35px #20344920;}
 .drawer-head {padding: 20px 23px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 20px;}
@@ -196,6 +204,7 @@ td .muted {display: block; font-size: 11px; margin-top: 4px;}
 .tabbar button[aria-selected=true] {border-bottom-color: var(--blue); color: #2056bf;}
 .code-block {font-size: 11px; line-height: 1.8; padding: 15px; background: #f4f7fb; color: #445e7e; border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere;}
 summary {cursor: pointer; font-size: 12px; color: #42638c; padding: 10px 0;}
+/* 策略比较的进度条、结果条形图及回放控制。 */
 .compare-layout {display: grid; grid-template-columns: 300px minmax(0,1fr); gap: 21px;}
 .progress-track {height: 8px; border-radius: 5px; background: #eaf0f8; overflow: hidden;}
 .progress-track > div {height: 100%; background: #3773e9; transition: width .2s;}
@@ -209,6 +218,7 @@ summary {cursor: pointer; font-size: 12px; color: #42638c; padding: 10px 0;}
 .range-row input {flex: 1; min-width: 0; accent-color: var(--blue);}
 .range-row > span {min-width: 70px;}
 .control {width: auto; min-height: 40px;}
+/* 设置分组、固定参数与保存区域。 */
 .settings-layout {display: grid; grid-template-columns: 180px minmax(0,1fr); gap: 25px; padding: 22px;}
 .settings-nav {display: flex; flex-direction: column; gap: 6px;}
 .settings-nav button {border: 0; background: transparent; text-align: left; padding: 11px 14px; border-radius: 6px; font-size: 13px; color: #5c7590;}
@@ -221,6 +231,7 @@ summary {cursor: pointer; font-size: 12px; color: #42638c; padding: 10px 0;}
 .setting-value select, .setting-value input {border: 1px solid #d5e0ed; border-radius: 6px; padding: 9px; color: #3a5676; background: white; max-width: 160px;}
 .setting-fixed {display: block; font-size: 12px; color: #3d597b; padding: 9px 11px; border-radius: 6px; background: #f1f5fa; white-space: nowrap;}
 .settings-save {padding: 18px 22px; background: #fafcfe; border-top: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; font-size: 12px; color: #5e7490;}
+/* 日志、来源文件、操作提示及无障碍辅助类。 */
 .log-list {max-height: 280px; overflow-y: auto; padding: 14px; background: #f4f7fb; border-radius: 6px; font-family: ui-monospace, monospace; font-size: 11px; line-height: 2.1; color: #526d8e; white-space: pre-wrap; overflow-wrap: anywhere;}
 .advanced > summary {padding: 17px 22px; font-size: 13px;}
 .file-list {padding: 0; list-style: none;}
@@ -232,6 +243,7 @@ summary {cursor: pointer; font-size: 12px; color: #42638c; padding: 10px 0;}
 input[type=checkbox] {accent-color: var(--blue); width: 16px; height: 16px;}
 .hidden {display: none !important;}
 .sr-only {position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;}
+/* 中等桌面宽度：缩小侧栏并压缩卡片间距。 */
 @media (max-width: 1200px) {
   .sidebar {width: 186px; padding-left: 12px; padding-right: 12px;}
   .brand {gap: 8px; padding-left: 5px; padding-right: 0;}
@@ -248,6 +260,7 @@ input[type=checkbox] {accent-color: var(--blue); width: 16px; height: 16px;}
   .metric-value.quality {font-size: 21px;}
   .monitor-layout .panel-header, .monitor-layout .panel-body {padding-left: 17px; padding-right: 17px;}
 }
+/* 平板宽度：监护内容改为单列。 */
 @media (max-width: 980px) {
   .monitor-layout {grid-template-columns: minmax(0,1fr);}
   .monitor-layout > aside.stack {display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); align-items: start;}
@@ -257,6 +270,7 @@ input[type=checkbox] {accent-color: var(--blue); width: 16px; height: 16px;}
   .settings-layout {grid-template-columns: 145px minmax(0,1fr); gap: 17px;}
   .setting-row {gap: 15px;}
 }
+/* 手机宽度：启用底部导航，调整表单、图表和详情抽屉。 */
 @media (max-width: 767px) {
   body {font-size: 13px;}
   h1 {font-size: 24px;}
@@ -352,6 +366,7 @@ input[type=checkbox] {accent-color: var(--blue); width: 16px; height: 16px;}
   #toasts {left: 12px; right: 12px; bottom: 120px; max-width: none;}
   .toast {font-size: 12px;}
 }
+/* 尊重系统的减少动态效果设置。 */
 @media (prefers-reduced-motion: reduce) {
   *, *:before, *:after {animation: none !important; transition: none !important;}
 }

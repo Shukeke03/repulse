@@ -1,3 +1,4 @@
+/* 固件入口：以六个静态任务完成真实记录采集、处理、会话管理和状态上报。 */
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
@@ -10,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* 队列、任务控制块和栈均静态分配，避免运行期间申请堆内存。 */
 #define EVENT_LENGTH 256
 static StaticQueue_t raw_control, ui_control, session_control, feedback_control, event_control;
 static uint8_t raw_storage[8*sizeof(SampleBlock)], ui_storage[sizeof(Result)];
@@ -28,6 +30,7 @@ static Result latest, windows[3];
 static const char *states[]={"CREATED","PREPARING","RECOVERING","FINALIZING","COMPLETED","CANCELLED","FAILED"};
 static const char *task_names[]={"Acquisition","DSP","Session","Feedback","UI","System"};
 
+/* UART 使用逐行 JSON；只有系统任务常规输出，其他任务通过事件队列上报。 */
 static void line_out(const char *text) {
     while(*text)bsp_putc(*text++);
     bsp_putc('\n');
@@ -43,11 +46,13 @@ static void emit(const char *format,...) {
         session_state=6;
     }
 }
+/* 输入损坏或处理链路失败时终止会话，不跳过观测继续产生结果。 */
 static void source_failure(const char *code) {
     session_state=6;
     revision++;
     emit("{\"type\":\"fatal\",\"code\":\"%s\"}",code);
 }
+/* 按原始记录时间决定采集开关，准备期保持开启，恢复期应用所选策略。 */
 static int acquisition_enabled(uint32_t time_us) {
     const InputHeader *h=input_header();
     if(time_us<h->t0_us)return 1;
@@ -61,6 +66,7 @@ static int acquisition_enabled(uint32_t time_us) {
     return 0;
 }
 
+/* 读取真实观测并先应用采集策略，再将最多 16 点的数据块送入 DSP 队列。 */
 static void acquisition_task(void *unused) {
     (void)unused;
     uint16_t segment=0;
@@ -74,6 +80,7 @@ static void acquisition_task(void *unused) {
         uint32_t next_count=h->count-input_rows();
         if(next_count>16)next_count=16;
         uint32_t next_end=(input_rows()+next_count)*INPUT_PERIOD_US;
+        /* RTOS tick 只控制回放节奏，样本时间戳始终沿用原记录的时间轴。 */
         uint64_t playback_elapsed=(uint64_t)(xTaskGetTickCount()-prepare_tick)*h->speed_milli;
         if(playback_elapsed<next_end) { vTaskDelay(pdMS_TO_TICKS(1));continue; }
         int n=input_read(rows,next_count);
@@ -97,6 +104,7 @@ static void acquisition_task(void *unused) {
     }
 }
 
+/* 顺序执行因果滤波、实时估计与三个固定窗口，并保存固件实际处理的样本。 */
 static void dsp_task(void *unused) {
     (void)unused;
     SampleBlock block;
@@ -112,6 +120,7 @@ static void dsp_task(void *unused) {
         }
         uint32_t end=block.values[block.count-1].time_us+INPUT_PERIOD_US;
         processed_us=end;
+        /* 恢复起点来自输入记录，只有处理进度到达该时刻才切换会话状态。 */
         if(session_state==1&&end>=h->t0_us) {
             t0_us=h->t0_us;
             session_state=2;
@@ -139,6 +148,7 @@ static void dsp_task(void *unused) {
             latest.end_us=end;
             taskEXIT_CRITICAL();
         }
+        /* 每个窗口覆盖中心前后各 4 秒，数据齐备后只计算一次。 */
         static const uint32_t centers[3]={0,60000000,120000000};
         for(unsigned i=0;i<3;i++)if(windows[i].reason==REASON_PENDING&&end>=h->t0_us+centers[i]+4000000) {
             Result result=dsp_estimate(h->t0_us+centers[i]-4000000,h->t0_us+centers[i]+4000000,end);
@@ -154,6 +164,7 @@ static void dsp_task(void *unused) {
     }
 }
 
+/* 仅解析控制协议需要的简单字符串和无符号整数，拒绝转义与超长字段。 */
 static int field_string(const char *json,const char *key,char *out,unsigned capacity) {
     char token[80];
     snprintf(token,sizeof(token),"\"%s\"",key);
@@ -186,6 +197,7 @@ static int field_uint(const char *json,const char *key,uint32_t *out) {
     *out=(uint32_t)strtoul(position,0,10);
     return 1;
 }
+/* 命令携带版本号和幂等键，重复提交不会再次改变状态。 */
 static void command(const char *json) {
     char kind[32],id[64];
     uint32_t expected=revision;
@@ -238,6 +250,7 @@ static void command(const char *json) {
         id,applied?"true":"false",(unsigned long)revision,code);
 }
 
+/* 接收 UART 命令；结束时等待采集队列清空，再关闭传输文件并进入终态。 */
 static void session_task(void *unused) {
     (void)unused;
     char command_buffer[384];
@@ -265,16 +278,19 @@ static void session_task(void *unused) {
         vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
+/* 反馈任务保留独立结果邮箱，当前仿真目标没有蜂鸣器或振动器驱动。 */
 static void feedback_task(void *unused) {
     (void)unused;
     Result result;
     for(;;) { (void)xQueueReceive(qFeedback,&result,pdMS_TO_TICKS(100));heartbeat[3]++; }
 }
+/* 设备显示任务保留独立结果邮箱，浏览器画面由主机消费遥测后绘制。 */
 static void ui_task(void *unused) {
     (void)unused;
     Result result;
     for(;;) { (void)xQueueReceive(qUI,&result,pdMS_TO_TICKS(100));heartbeat[4]++; }
 }
+/* 无效窗口输出 null 和原因，避免将缺失的脉率显示为零。 */
 static void print_result(Result result) {
     char buffer[256];
     if(result.valid) {
@@ -285,6 +301,7 @@ static void print_result(Result result) {
             dsp_reason(result.reason),(unsigned long)result.available_us,(unsigned long)result.start_us,(unsigned long)result.end_us);
     for(char *p=buffer;*p;p++)bsp_putc(*p);
 }
+/* 快照汇总固件状态、窗口及内核实测任务信息，供主机归档和展示。 */
 static void snapshot(void) {
     char buffer[512];
     Result current,results[3];
@@ -313,6 +330,7 @@ static void snapshot(void) {
     }
     line_out("]}");
 }
+/* 发送启动握手、排空事件队列，并每 200 毫秒发送一次快照。 */
 static void system_task(void *unused) {
     (void)unused;
     char event[EVENT_LENGTH],hello[320];
@@ -328,6 +346,7 @@ static void system_task(void *unused) {
     }
 }
 
+/* FreeRTOS 静态空闲任务内存，以及栈溢出和内核断言的故障出口。 */
 void vApplicationGetIdleTaskMemory(StaticTask_t **tcb,StackType_t **stack,uint32_t *size) {
     static StaticTask_t idle;
     static StackType_t idle_stack[256];
@@ -348,6 +367,7 @@ void repulse_assert(const char *file,int line) {
     line_out("{\"type\":\"fatal\",\"code\":\"KERNEL_ASSERT\"}");
     for(;;){}
 }
+/* 完成板级初始化、输入校验、队列与任务创建后，交由 FreeRTOS 调度。 */
 int main(void) {
     bsp_init();
     source_ready=input_open();

@@ -1,3 +1,4 @@
+/* 原生 64 Hz BVP 处理：因果带通、连续性检查及固定 8 秒窗口脉率估计。 */
 #include "dsp.h"
 #include <math.h>
 #include <string.h>
@@ -16,6 +17,7 @@ static uint32_t segment_start, last_us, last_seq;
 static int continuous;
 static float state[2][2];
 
+/* 新会话清空历史和滤波状态，不复用前一会话的数据。 */
 void dsp_reset(void) {
     head=count=0;
     segment=0;
@@ -23,12 +25,14 @@ void dsp_reset(void) {
     continuous=0;
     memset(state,0,sizeof(state));
 }
+/* 每点更新滤波器与环形历史；采集关闭、缺口或新片段都会重新预热。 */
 void dsp_feed(const Sample *s) {
     Entry *e=&ring[head];
     e->sample=*s;
     e->warm=1;
     e->filtered=0;
     if(s->on&&!s->gap&&isfinite(s->ppg)&&isfinite(s->accel)) {
+        /* 用片段首值初始化二阶节状态，降低重新开启时的直流瞬变。 */
         if(!continuous || s->segment!=segment || s->time_us-last_us!=DSP_SAMPLE_US || s->seq-last_seq!=1) {
             segment=s->segment;
             segment_start=s->time_us;
@@ -60,6 +64,7 @@ void dsp_feed(const Sample *s) {
 }
 float dsp_last_filtered(void) { return ring[(head+DSP_CAPACITY-1)%DSP_CAPACITY].filtered; }
 int dsp_last_warming(void) { return ring[(head+DSP_CAPACITY-1)%DSP_CAPACITY].warm; }
+/* 小数组原地排序，供峰间隔中位数和 MAD 检查使用。 */
 static float median(float *a,unsigned n) {
     for(unsigned i=1;i<n;i++) {
         float value=a[i];
@@ -69,6 +74,7 @@ static float median(float *a,unsigned n) {
     }
     return n%2?a[n/2]:(a[n/2-1]+a[n/2])*0.5f;
 }
+/* 仅接受 [start,end) 内完整、连续且已预热的 512 点，失败时返回明确原因。 */
 Result dsp_estimate(uint32_t start,uint32_t end,uint32_t available) {
     Result r={.available_us=available,.start_us=start,.end_us=end,.reason=REASON_INSUFFICIENT};
     float y[DSP_WINDOW_SAMPLES],raw_min=1e20f,raw_max=-1e20f,sum=0,energy=0,rawsum=0,rawsq=0;
@@ -96,6 +102,7 @@ Result dsp_estimate(uint32_t start,uint32_t end,uint32_t available) {
         if(s->ppg>raw_max)raw_max=s->ppg;
     }
     if(n!=DSP_WINDOW_SAMPLES)return r;
+    /* 原始幅度与动态加速度先筛除平坦信号和明显运动伪迹。 */
     float raw_variance=rawsq/n-(rawsum/n)*(rawsum/n);
     if(raw_max-raw_min<1e-5f||raw_variance<.0025f) { r.reason=REASON_LOW_AMPLITUDE;return r; }
     if(motion_count>DSP_WINDOW_SAMPLES/10) { r.reason=REASON_POOR_SIGNAL;return r; }
@@ -103,6 +110,7 @@ Result dsp_estimate(uint32_t start,uint32_t end,uint32_t available) {
     sum/=n;
     for(unsigned i=0;i<n;i++) { y[i]-=sum;energy+=y[i]*y[i]; }
     if(energy/n<.0004f) { r.reason=REASON_LOW_AMPLITUDE;return r; }
+    /* 根据窗口能量设置峰显著度，并合并距离过近的局部峰。 */
     float prominence=.35f*sqrtf(energy/n);
     unsigned peaks[30],np=0;
     for(unsigned i=1;i<n-1;i++)if(y[i]>y[i-1]&&y[i]>=y[i+1]) {
@@ -123,6 +131,7 @@ Result dsp_estimate(uint32_t start,uint32_t end,uint32_t available) {
         intervals[ni]=scratch[ni]=delta;
         ni++;
     }
+    /* 峰间隔离散度和自相关需同时通过，才发布脉率。 */
     float middle=median(scratch,ni),maximum_deviation=0;
     for(unsigned i=0;i<ni;i++) {
         deviations[i]=fabsf(intervals[i]-middle);
@@ -147,6 +156,7 @@ Result dsp_estimate(uint32_t start,uint32_t end,uint32_t available) {
     r.reason=REASON_NONE;
     return r;
 }
+/* 与主机协议共用的质量原因名称；固件返回首个阻止发布的原因。 */
 const char *dsp_reason(int reason) {
     static const char *labels[]={"VALID","INSUFFICIENT_HISTORY","DATA_GAP","WARMUP","MOTION_ARTIFACT",
         "IRREGULAR_INTERVALS","AUTOCORRELATION_MISMATCH","LOW_AMPLITUDE","OUT_OF_RANGE","PENDING","ACQUISITION_OFF"};

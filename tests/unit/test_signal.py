@@ -1,4 +1,4 @@
-"""Native-rate signal processing checks using real, checksum-verified BVP data."""
+"""用已校验的真实BVP验证原生采样率、滤波连续性、质量检查和缺测传播。"""
 
 import copy
 
@@ -12,6 +12,7 @@ from backend.sources.public_data import PERIOD_US, DatasetSource
 
 @pytest.fixture
 def samples():
+    """仅使用本地已下载记录，测试期间不访问网络。"""
     try:
         return DatasetSource({"dataset_id": "wearable-aerobic-s02", "strategy": "continuous"}).all_samples
     except ValueError:
@@ -19,6 +20,7 @@ def samples():
 
 
 def process(samples, blocksize=16):
+    """复制输入后按指定块大小处理，便于核对跨块滤波状态。"""
     processor = Processor({"sample_hz": 64})
     rows = copy.deepcopy(samples)
     for start in range(0, len(rows), blocksize):
@@ -57,6 +59,7 @@ def test_signed_original_bvp_is_not_treated_as_adc_saturation(samples):
 
 
 def test_device_hr_reference_never_changes_dsp_answer(samples):
+    # 故意改写设备参考值，证明脉率计算不依赖HR通道。
     a = process(samples)
     changed = copy.deepcopy(samples)
     for row in changed:
@@ -68,6 +71,7 @@ def test_device_hr_reference_never_changes_dsp_answer(samples):
 
 
 def test_missing_observation_breaks_continuity_and_propagates_quality(samples):
+    # 仅在测试副本中制造单点缺口，后续完整窗口应正常恢复。
     rows = copy.deepcopy(samples)
     index = round(70 * 64)
     rows[index]["ppg"] = None

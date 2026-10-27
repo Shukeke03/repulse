@@ -1,3 +1,4 @@
+/* 板级接口：串口控制通道及预留的真实传感器读取入口。 */
 #ifndef REPULSE_BSP_H
 #define REPULSE_BSP_H
 #include <stdint.h>

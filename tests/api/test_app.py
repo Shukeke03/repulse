@@ -1,3 +1,4 @@
+# 使用隔离存储验证真实数据接口、持久化、导出和并发操作约束。
 """Real-recording API contracts against isolated on-disk application state."""
 
 import hashlib

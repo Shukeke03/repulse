@@ -1,8 +1,6 @@
-"""Streaming causal PPG processing with explicit data-support and quality reasons.
+"""连续处理带正负幅值的原始脉搏波，输出脉率、窗口支持范围和质量原因。
 
-The processor accepts native-rate, signed BVP observations. Quality thresholds are
-engineering defaults in the source units, not clinical cutoffs. Reference-device
-HR values are deliberately never consumed. SOS state is preserved across blocks.
+SOS滤波状态跨数据块保存；质量阈值为工程设置，不使用设备HR作为计算输入。
 """
 
 from __future__ import annotations
@@ -27,6 +25,8 @@ DEFAULT_CONFIG = {
 
 
 class Processor:
+    """维护连续片段的滤波状态，并对固定8秒窗口执行质量检查。"""
+
     def __init__(self, config: dict | None = None):
         supplied = config or {}
         self.config = {**DEFAULT_CONFIG, **supplied}
@@ -53,7 +53,7 @@ class Processor:
         self._generation = 0
 
     def feed(self, samples: list[dict]) -> None:
-        """Feed chronological observations; add filtered and warming to archived rows."""
+        """接收按时间递增的样本，在归档行补充滤波值与预热状态。"""
         if not samples:
             return
         runs: list[tuple[list[dict], bool]] = []
@@ -83,7 +83,7 @@ class Processor:
                     current = []
                 self._segment_start = t if available else None
                 self._generation += 1
-                # Defer state-reset to filtering below; per-run reset marker is stored.
+                # 先记录片段切换；下方分段滤波时再重置状态。
             sample["filtered"] = None
             sample["warming"] = bool(
                 available
@@ -100,8 +100,7 @@ class Processor:
             self.samples.append(sample)
         if current:
             runs.append((current, False))
-        # Process each physically continuous run independently. Preserve SOS states
-        # only when the immediately preceding processed run has the same generation.
+        # 仅连续的同一片段沿用SOS状态，缺口与策略重启均重新预热。
         for run, invalid in runs:
             generation = run[0]["_dsp_segment"]
             if invalid:
@@ -115,9 +114,10 @@ class Processor:
             self._filtered_generation = generation
             for row, value in zip(run, y):
                 row["filtered"] = round(float(value), 8)
-        # Continuity generation is internal bookkeeping, never an external label.
+        # 连续片段编号仅用于DSP内部检查，不充当外部记录标签。
 
     def _result(self, start_us: int, end_us: int, available_us: int) -> dict:
+        """先检查窗口是否完整，再检查幅值、运动、峰间距和自相关。"""
         result: dict = {
             "valid": False,
             "pulse_bpm": None,
@@ -144,6 +144,7 @@ class Processor:
             reasons.append("NOT_READY")
             result["reason_codes"] = list(reasons)
             return result
+        # 质量结论只使用这个固定窗口，不能向后取数据填补缺口。
         rows = [s for s in self.samples if start_us <= int(s["time_us"]) < end_us]
         result["sample_count"] = sum(s.get("ppg") is not None for s in rows)
         result["segment_ids"] = sorted(
@@ -220,6 +221,7 @@ class Processor:
             if len(motion) and np.mean(motion > float(self.config["motion_threshold"])) > 0.1:
                 reasons.append("MOTION_ARTIFACT")
             if not reasons:
+                # 峰间距给出候选脉率；自相关提供独立于选峰的周期一致性检查。
                 peaks, _ = find_peaks(y, distance=self.min_interval, prominence=max(1e-5, filt_std * 0.35))
                 intervals = np.diff(peaks).astype(float)
                 usable = intervals[(intervals >= self.min_interval) & (intervals <= self.max_interval)]
@@ -279,7 +281,7 @@ class Processor:
         return result
 
     def estimate(self, end_us: int) -> dict:
-        """Current trailing result; OFF and observed loss immediately invalidate it."""
+        """计算当前时刻之前8秒的结果，并显式标注输入过期。"""
         end_us = int(end_us)
         result = self._result(end_us - 8_000_000, end_us, end_us)
         result["data_age_seconds"] = None
@@ -297,6 +299,7 @@ class Processor:
         return result
 
     def window(self, center_seconds: int | float, t0_us: int, available_us: int) -> dict:
+        """围绕固定恢复时刻建立前后各4秒的窗口。"""
         center_us = int(t0_us) + round(float(center_seconds) * 1e6)
         result = self._result(center_us - 4_000_000, center_us + 4_000_000, int(available_us))
         result.update(

@@ -19,6 +19,7 @@ from backend.sources.public_data import DatasetSource
 from backend.storage.store import Store, atomic_json
 
 
+# 固件发布结果后才离线重算，用相同观测验证 C 与 Python 的窗口结论。
 def offline_reference(samples, t0_us, config):
     """Recompute only for independent verification after firmware publication."""
     processor = Processor(config)
@@ -34,6 +35,7 @@ def offline_reference(samples, t0_us, config):
     return expected
 
 
+# 逐条检查时间、序号、策略掩码及 float32 原始值，避免漏样或换源。
 def check_observations(actual, expected):
     """Validate masking and native float32 transfer against the selected real file."""
     if len(actual) != len(expected):
@@ -55,6 +57,7 @@ def check_observations(actual, expected):
             assert row["accel"] == to_float32(source["accel"])
 
 
+# 运行完整真实记录，核对样本、结果、CRC、实际内核任务及归档状态。
 async def verify_real_record(
     directory, dataset_id="wearable-aerobic-s02", strategy="continuous", speed=10, phase=0
 ):
@@ -83,6 +86,7 @@ async def verify_real_record(
         source = DatasetSource(config)
         expected_rows = source.block(0, source.duration_us // source.period_us)
         check_observations(port.samples, expected_rows)
+        # 只比较有效性和有效脉率；两种实现允许返回不同数量的质量原因。
         reference = offline_reference(port.samples, port.t0_us, port.config)
         comparisons = []
         for center in (0, 60, 120):
@@ -105,6 +109,7 @@ async def verify_real_record(
         assert all(task["stack_high_water_words"] > 0 for task in port.firmware_tasks)
         saved = store.get(port.id)
         assert saved["origin"] == "PUBLIC_DATA" and saved["status"] == "COMPLETED"
+        # 报告同时保存来源和固件哈希，原记录时长与主机耗时分开记录。
         report = {
             "status": "PASS",
             "target": "mps2-an385",
@@ -137,6 +142,7 @@ async def verify_real_record(
         store.close()
 
 
+# 命令行入口：在项目内的临时目录验证，再原子写入独立报告文件。
 async def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset-id", "--dataset", dest="dataset", default=DEFAULT_DATASET)

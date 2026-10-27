@@ -1,3 +1,5 @@
+// Canvas 绘图模块：展示真实波形、导出图片及绘制腕端屏幕预览。
+// 根据屏幕像素比绘制坐标轴，横轴统一使用相对恢复起点的记录时间。
 export function drawChart(canvas, samples = [], options = {}) {
   if (!canvas) return;
   const rect = canvas.getBoundingClientRect();
@@ -40,6 +42,7 @@ export function drawChart(canvas, samples = [], options = {}) {
   ctx.strokeStyle = color; ctx.lineWidth = key === 'accel' ? 1.5 : 1.7; ctx.lineJoin = 'round'; ctx.beginPath();
   const stride = options.decimation || 1, period = options.period_us || 15625;
   let pen = false, previous;
+  // PPG 在未读取或缺失处断线；加速度不受 PPG 读取策略影响。
   for (const sample of visible) {
     const valid = (motion || sample.on !== false && !sample.gap) && Number.isFinite(sample[key]);
     const broken = previous && (!motion && sample.segment_id !== previous.segment_id || sample.time_us - previous.time_us > period * stride * 1.6);
@@ -60,6 +63,7 @@ export function drawChart(canvas, samples = [], options = {}) {
   canvas._chart = {samples, options};
 }
 
+// 在波形上方补充标题、时间轴说明和导出时间，生成可下载的 PNG。
 export function exportPNG(canvas, title = 'RePulse · 公开人体记录') {
   if (!canvas) throw new Error('当前没有可导出的图表。');
   const out = document.createElement('canvas'); out.width = canvas.width; out.height = canvas.height + 72;
@@ -72,6 +76,7 @@ export function exportPNG(canvas, title = 'RePulse · 公开人体记录') {
   const a = document.createElement('a'); a.href = out.toDataURL('image/png'); a.download = `repulse-${Date.now()}.png`; a.click();
 }
 
+// 用同一份处理快照绘制 128×64 腕端预览，支持脉率、窗口和质量三页。
 export function drawWrist(canvas, snapshot, page = 0) {
   if (!canvas) return;
   canvas.width = 128; canvas.height = 64;

@@ -1,4 +1,5 @@
 <!doctype html>
+<!-- 单页应用入口：由 app.js 按路由加载各功能页面。 -->
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
@@ -7,10 +8,12 @@
   <meta name="description" content="RePulse 复脉 · 运动恢复关键时间窗监护系统">
   <title>RePulse 复脉 · 运动恢复监护</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='12' fill='%23245ff2'/%3E%3Cpath d='M7 21h7l3-9 6 17 3-8h7' fill='none' stroke='white' stroke-width='3'/%3E%3C/svg%3E">
+  <!-- 共用样式和模块脚本；无需前端构建步骤。 -->
   <link rel="stylesheet" href="/styles/app.css">
   <script type="module" src="/js/app.js"></script>
 </head>
 <body>
+  <!-- 页面、操作提示和详情抽屉分别挂载，避免相互覆盖。 -->
   <div id="app"></div>
   <div id="toasts" aria-live="polite"></div>
   <div id="drawer-root"></div>
