@@ -9,3 +9,5 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
     uvicorn.run("backend.api.app:app", host="127.0.0.1", port=args.port, workers=1, log_level="info")
+
+"""系统界面:http://127.0.0.1:8765"""

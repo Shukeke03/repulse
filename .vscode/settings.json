@@ -32,11 +32,6 @@
     "PATH": "${userHome}/miniforge3/envs/repulse/bin:${env:PATH}",
     "PLAYWRIGHT_BROWSERS_PATH": "${userHome}/miniforge3/envs/repulse/share/playwright-browsers"
   },
-  "python-envs.pythonProjects": [
-    {
-      "path": ".",
-      "envManager": "ms-python.python:conda",
-      "packageManager": "ms-python.python:conda"
-    }
-  ]
+  "python-envs.defaultEnvManager": "ms-python.python:conda",
+  "python-envs.defaultPackageManager": "ms-python.python:conda"
 }
