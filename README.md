@@ -6,6 +6,8 @@
 
 ## 功能演示
 
+https://github.com/user-attachments/assets/462c99d1-ae6f-4af0-a102-d0aa058504e8
+
 [打开或下载演示视频（约42秒）](docs/demo/repulse-demo.mp4)
 
 视频展示真实记录的运动恢复过程、结果回放、数据来源和策略比较。演示使用10倍播放，原始记录时间不变。
