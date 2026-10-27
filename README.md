@@ -1,186 +1,136 @@
 # RePulse 复脉
 
-**运动恢复关键时间窗监护系统**：用可复现合成信号演示运动后的脉率恢复监护，结合流式信号处理、浏览器可视化和真实 FreeRTOS 仿真。适用于课程设计、算法实验与嵌入式软件演示。
+运动恢复监护课程项目。系统读取下载到本地的公开人体记录，显示脉搏波、运动变化和信号质量，计算恢复起点、60秒和120秒附近的窗口脉率及变化量。
 
-准备至少6秒后标记运动结束，系统继续观察124秒，分析起点、60秒与120秒附近的固定8秒窗口。窗口不可靠时保留缺测与原因，分别计算可用的 ΔPR60、ΔPR120，不用其他时段填补关键窗口。
+![真实记录处理界面](docs/screenshots/02-monitor.png)
 
-![RePulse 实时监护界面](docs/screenshots/02-monitor.png)
+## 数据来源
 
-## 功能与架构
+使用 PhysioNet 的 [Wearable Device Dataset from Induced Stress and Structured Exercise Sessions v1.0.1](https://physionet.org/content/wearable-device-dataset/1.0.1/)。原始文件放在项目内 `data/public/`，下载后可离线使用。系统没有合成波形或随机数据入口。
 
-| 页面 | 功能 |
-| --- | --- |
-| 工作台 | 选择执行环境、模拟场景和采集策略，新建或继续记录 |
-| 实时监护 | PPG与运动曲线、质量判定、关键窗口、腕端128×64模拟屏、冻结视图 |
-| 记录库 | 搜索筛选、详情、备注标签、批量删除、JSON/CSV/原始ZIP导出 |
-| 记录回放 | 独立时钟、播放速度、逐秒、定位重建、原结果与重算结果、PNG导出 |
-| 策略比较 | 连续、等预算周期、关键窗优先；相同输入的后台配对实验 |
-| 信号与故障 | 向活动Python模拟会话注入、停止或撤销故障，保留事件 |
-| 系统状态 | 服务、存储、时钟与实际执行环境诊断 |
-| 设置 | 显示偏好、默认策略和算法配置；活动会话配置保持冻结 |
+- BVP脉搏波：原始64 Hz，保留设备相对单位与正负波形值。
+- 三轴加速度：原始32 Hz。按文件单位换算为g，再提取运动变化量。
+- `tags.csv`：与同次记录同步的阶段标记。恢复起点由作者协议核对后固定，播放操作不改变起点。
+- `HR.csv`：设备从同一BVP计算的脉率，用作设备输出参考，不是独立心电金标准。
 
-- **前端**：原生 HTML/CSS/JavaScript、Canvas、Hash 路由。
-- **后端**：Python 3.12、FastAPI、Uvicorn、Pydantic、WebSocket。
-- **算法与数据**：NumPy/SciPy 因果滤波、质量规则、SQLite索引及CSV/JSONL归档。
-- **固件**：FreeRTOS V11.2.0、QEMU Cortex-M3目标、STM32L476RG独立构建目标。
+演示从恢复起点前10秒开始，持续到起点后124秒，共134秒。恢复阶段是低阻力踩踏的主动恢复，不是完全静止后的恢复。信号不能支持估计时显示缺测与原因。
 
-前端静态文件和后端API由**同一个 FastAPI 服务**提供，无需另外启动前端服务器或运行 npm 构建。浏览器关闭、切页或冻结图表不会自动取消后台采集。
+数据文件、版本、SHA256、阶段图和许可见 [DATASET.md](docs/DATASET.md)。原始数据不提交到GitHub，可通过下载脚本复现。
 
-## 本地部署：Miniforge（推荐）
+## 安装与启动
 
-准备 Git 和 [Miniforge](https://github.com/conda-forge/miniforge)。本项目已在 macOS Apple Silicon 验证；Python服务使用POSIX文件锁，Windows请使用WSL2，原生Windows尚未适配。
+需要 Git、[Miniforge](https://github.com/conda-forge/miniforge)。已在macOS Apple Silicon验证；使用POSIX文件锁，原生Windows请使用WSL2。
 
 ```sh
 git clone https://github.com/Shukeke03/repulse.git
 cd repulse
 conda env create -f environment.yml
 conda activate repulse
+python -m scripts.download_dataset
 python run.py
 ```
 
-私有仓库需要先使用有访问权限的GitHub账号完成Git认证。若环境已经创建，后续只需在项目根目录执行：
+仓库为私有时，克隆需要有访问权限的GitHub账号。已有环境和数据时只需：
 
 ```sh
+cd repulse
 conda activate repulse
 python run.py
 ```
 
-启动后用浏览器打开：
+同一个FastAPI服务提供前端静态文件和后端API，无需启动第二个前端服务或运行npm构建。
 
-| 地址 | 用途 |
+| 地址 | 内容 |
 | --- | --- |
-| [http://127.0.0.1:8765](http://127.0.0.1:8765) | 系统可视化UI |
-| [http://127.0.0.1:8765/docs](http://127.0.0.1:8765/docs) | 后端交互式API文档 |
-| [http://127.0.0.1:8765/api/bootstrap](http://127.0.0.1:8765/api/bootstrap) | 服务能力、默认配置与活动会话 |
+| [http://127.0.0.1:8765](http://127.0.0.1:8765) | 系统界面 |
+| [http://127.0.0.1:8765/docs](http://127.0.0.1:8765/docs) | 后端接口文档 |
+| [http://127.0.0.1:8765/api/datasets](http://127.0.0.1:8765/api/datasets) | 本地记录目录及来源信息 |
 
-服务默认只监听 `127.0.0.1`。一次运行一个进程、一个worker；同一数据目录只允许一个服务。按 `Ctrl+C` 停止。端口占用时可先使用已有实例，或通过 `python run.py --port 8766` 更改端口，并为第二个实例指定不同的数据目录。
+服务监听本机，采用单进程、单worker。停止时按Ctrl+C。`python run.py --port 8766`可更改端口；同一数据目录不能同时运行两个实例。
 
-## 可选部署：Python虚拟环境
+## 使用流程
 
-已有Python 3.12的macOS/Linux环境也可以使用venv。在克隆后的项目根目录执行：
+1. 在工作台选择公开记录、采集策略和处理方式，点击“开始演示”。
+2. 前10秒读取恢复起点前的历史。到达原记录标记时自动进入恢复段，无需手动标记。
+3. 查看波形、算法脉率、信号质量与三个固定窗口。冻结只固定当前图表，后台继续处理。
+4. 完成后在记录库查看结果、备注、回放或导出。部分窗口缺测不等于运行失败。
+5. 策略比较对同一片段使用连续、周期和关键窗口优先三种读取策略，以连续采集结果作工程对照。
 
-```sh
-python3.12 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e '.[dev]'
-python run.py
-```
+所有速度选项只改变播放推进速度，不修改原始采样时间和窗口长度。旧版本的合成演示记录不进入当前公开记录列表，原始文件不会被重写成真实数据。
 
-上述命令按源码可编辑模式安装，请保留完整项目目录并在根目录运行。`requirements.lock.txt`记录已验证机器上的Python包版本，`conda-osx-arm64.lock.txt`仅对应本次macOS arm64环境；跨平台安装优先使用 `environment.yml` 或 `pyproject.toml`。
+## 页面
 
-## 数据保存与远程服务器运行
+| 页面 | 用途 |
+| --- | --- |
+| 工作台 | 选择记录和处理方式，开始或返回当前演示 |
+| 恢复过程 | 按记录时间推进波形、质量、阶段、关键窗口与腕端屏 |
+| 记录库 | 查询处理结果、备注、导出及清理记录 |
+| 记录回放 | 独立播放、暂停、定位、逐秒和重新计算 |
+| 策略比较 | 相同真实输入的窗口覆盖、结果差异和开启时长比较 |
+| 数据与片段 | 查看原始文件、阶段、时间范围、来源与校验信息 |
+| 系统状态 | 查看服务、存储、时钟和实际FreeRTOS任务状态 |
+| 设置 | 图表、显示频率、腕端亮屏和默认策略 |
 
-默认数据目录为项目中的 `data/`，首次启动自动创建。可改为独立持久目录：
+## Python与FreeRTOS
 
-```sh
-export REPULSE_DATA_DIR="$HOME/repulse-data"
-python run.py
-```
+Python模式由电脑端完成数据读取和流式DSP。两种方式共用Python的加速度单位换算、1秒因果重力估计、动态运动量计算及32→64 Hz前值保持。QEMU模式由真实FreeRTOS任务完成PPG滤波、峰检测、质量判定和窗口计算，Python负责文件传输、归档和界面推送。
 
-备份时先停止服务，再备份整个数据目录，保留SQLite索引、会话文件和manifest的一致性。运行数据、导出包、编译产物和本地环境不纳入Git提交。
+QEMU通过受控的本地二进制观测文件读取真实数据，并输出固件处理后的波形；输入与输出包含版本、序号、时间和校验信息。它不是STM32外设模拟器，诊断数据也不代表STM32实机性能。固件内不再生成脉搏波。
 
-在Linux服务器上完成上述环境安装后，保持 `python run.py` 在服务器终端中运行；在本地另开终端建立SSH转发：
-
-```sh
-ssh -L 8765:127.0.0.1:8765 user@server
-```
-
-将 `user@server` 换成实际SSH目标，然后在本地浏览器访问 `http://127.0.0.1:8765`。应用当前为单用户本地模式，没有账号认证；远程使用采用上述SSH转发。仓库没有提供Docker或systemd部署配置。
-
-## 第一次使用
-
-1. 工作台选择Python、正常恢复和关键窗口优先，点击“开始准备”。
-2. 等待至少6秒，点击“标记运动结束”。提前标记仍保留真实起点，起点窗口会显示历史不足。
-3. 等待124秒恢复监护完成；计划关闭采集时读数失效，曲线保留断线。冻结只冻结视图。
-4. 在记录库查看三个窗口和两个变化量，回放记录或导出数据。
-5. 在策略比较页运行快速实验：3个种子×4个相位×3种策略，共36次运行。
-
-“起点不足”交互场景由用户按键决定真实起点；离线实验使用固定2秒准备。当前数据均为工程合成输入，窗口脉率变化量不输出临床风险等级。
-
-## 可选：FreeRTOS/QEMU 与 STM32构建
-
-Python模式不需要QEMU、交叉编译器或开发板。若要运行真实FreeRTOS，需要额外准备 `make`、`qemu-system-arm` 和 Arm GNU `arm-none-eabi` 工具链，并将命令加入当前终端的 `PATH`。
-
-macOS可按 [QEMU官方安装说明](https://www.qemu.org/download/) 使用已有Homebrew：
+使用QEMU需要 `make`、`qemu-system-arm` 和 `arm-none-eabi` 工具链。本机工具链位于Miniforge环境内，QEMU通过Homebrew安装。其他机器请从 [QEMU](https://www.qemu.org/download/) 与 [Arm GNU工具链](https://developer.arm.com/Tools%20and%20Software/GNU%20Toolchain) 官方来源安装，并加入PATH。
 
 ```sh
-brew install qemu
-```
-
-从 [Arm GNU Toolchain官方页面](https://developer.arm.com/Tools%20and%20Software/GNU%20Toolchain) 选择适合主机架构的 **arm-none-eabi** 归档并解压。可以将其放在Miniforge环境的 `opt/` 下，再将解压目录的 `bin/` 加入 `PATH`。本次验证使用 Arm GNU 14.3.Rel1、QEMU 11.0.1。确认可用后构建：
-
-```sh
-arm-none-eabi-gcc --version
-qemu-system-arm --version
 make -C firmware TARGET=qemu
 make -C firmware TARGET=stm32
 python run.py
 ```
 
-构建QEMU后在工作台选择FreeRTOS QEMU。应用会为会话启动并管理自己的QEMU进程。若要在终端独立观察固件协议：
+构建完成后可在工作台选择FreeRTOS。终端独立验证使用真实文件输入的辅助脚本：
 
 ```sh
-make -C firmware TARGET=qemu run
+python -m scripts.run_qemu --speed 10
+python -m scripts.run_qemu --gdb
 ```
 
-| 能力 | Python | FreeRTOS QEMU |
-| --- | --- | --- |
-| 状态与DSP所有者 | Python引擎 | 固件；Python仅转发与保存 |
-| 场景 | 六种预设及九种故障 | 正常恢复、提前标记 |
-| 策略 | 连续、等预算周期、关键窗优先 | 连续、关键窗优先 |
-| 诊断 | 应用状态 | 真实六任务、优先级、栈高水位、队列与丢块 |
+STM32目标完成交叉编译，真实传感器、显示与按键尚未上板验证，设备入口保持不可用。协议和构建说明见 [FIRMWARE.md](docs/FIRMWARE.md)，第三方内核源码保留MIT许可证和上游版本记录。
 
-QEMU首版采用固定算法与时间参数；修改对应全局默认值后，创建QEMU会话会明确提示恢复默认或使用Python。固件配置快照记录实际参数。QEMU虚拟时间与主机墙钟耗时分开记录，不代表STM32实机时间或电流。
+## 测试
 
-STM32L476RG目标已交叉编译，真实传感器、I2C/FIFO、显示和按键尚未上板验证，DEVICE入口保持不可用。固件接口、工具来源及已知边界见 [FIRMWARE.md](docs/FIRMWARE.md)。FreeRTOS源码与MIT许可证随仓库保留于 `firmware/vendor/`。
-
-## 测试与VS Code
-
-单元与接口测试：
+下载数据后执行：
 
 ```sh
 python -m pytest tests/unit tests/api
-```
-
-浏览器端到端测试需先安装专用Chromium：
-
-```sh
 export PLAYWRIGHT_BROWSERS_PATH="$(python -c 'import sys; print(sys.prefix)')/share/playwright-browsers"
 python -m playwright install chromium
 python -m pytest tests/e2e/browser_test.py
-```
-
-其他验证命令：
-
-```sh
 python -m scripts.quick_compare
 python scripts/verify_qemu.py
 ruff check backend tests scripts
 ```
 
-本次macOS完整环境执行了 **80项测试，全部通过**；另已完成真实QEMU的完整124秒恢复过程及同观测Python参考对照。新机器缺少QEMU或已构建ELF时，相关固件测试会明确跳过。浏览器测试使用临时数据目录，不修改日常记录。完整覆盖范围与待完善项见 [VERIFICATION.md](docs/VERIFICATION.md)，算法契约与估算能耗模型见 [ALGORITHM_CONTRACT.md](docs/ALGORITHM_CONTRACT.md)。
+测试使用独立数据目录。没有本地公开记录或QEMU工具时，相应测试会明确提示跳过，不在测试过程中联网下载数据。最新实际结果见 [VERIFICATION.md](docs/VERIFICATION.md)。
 
-VS Code打开 `repulse.code-workspace`，安装推荐的Python、Pylance、Debugpy；固件开发另用C/C++与Cortex-Debug。选择 `repulse` 环境解释器后，可使用F5调试或“终端 → 运行任务”中的启动、测试、比较和固件构建任务。VS Code配置默认按 `~/miniforge3/envs/repulse` 查找环境；若Miniforge安装在其他位置，选择实际解释器，并相应调整 `.vscode/settings.json`、`tasks.json` 与 `launch.json` 中的工具链和浏览器路径。
+## VS Code
 
-### VS Code 提示无法解析 uvicorn 或启动失败
+打开 `repulse.code-workspace`，选择 `repulse` 的Python解释器。右上角运行按钮或F5可启动；任务菜单提供数据下载、测试、策略比较、QEMU构建和运行。
 
-确认右下角解释器显示 `repulse (3.12.x)`。若显示系统 Python 3.9 等其他环境，按 `Cmd+Shift+P`（macOS）或 `Ctrl+Shift+P`（Linux/WSL），执行 `Python: Select Interpreter`，选择 `repulse` 环境。随后重新点击运行按钮。依赖已经安装在 `repulse` 中，选择正确环境即可解析。
+配置默认按 `~/miniforge3/envs/repulse` 查找环境。使用其他安装位置时，修改 `.vscode/settings.json`、`tasks.json` 和 `launch.json` 中相应路径。若提示无法解析 `uvicorn`，执行 `Python: Select Interpreter` 并选择已安装项目依赖的 `repulse` 环境。
 
-项目调试配置已显式指定 `~/miniforge3/envs/repulse/bin/python`。使用其他安装位置时，请修改 `.vscode/launch.json` 的 `python` 路径，并在解释器选择器中选中实际环境。
-
-## 工程目录
+## 文件与清理
 
 ```text
-backend/          API、实时/回放引擎、DSP、合成源、SQLite保存与比较进程
-web/              原生前端、8个页面与Canvas图表
-firmware/         共享任务/DSP、独立QEMU与STM32启动/BSP/链接脚本
-scripts/          离线比较、导出与QEMU验收
-scenarios/        场景说明
-.vscode/          开发任务和调试配置
-tests/            单元、接口、固件协议与浏览器测试
-docs/             设计、契约、截图与验收证据
-data/             本地持久化数据（Git忽略）
+backend/          API、数据源、流式处理、回放、比较与持久化
+web/              原生HTML/CSS/JavaScript与Canvas图表
+firmware/         FreeRTOS任务、C DSP、数据输入和独立板级目标
+scripts/          数据下载、导出、策略比较与固件验证
+tests/            单元、接口、真实浏览器与固件测试
+docs/             数据来源、协议、设计、截图和验证证据
+data/public/      下载的公开原始记录、来源与校验信息
+data/sessions/    本次处理的波形、结果、事件和manifest
+data/transports/  QEMU运行期间使用的受控观测文件
+data/exports/     导出文件
 ```
 
-原始记录以CSV/JSONL落盘，终态生成带SHA256的manifest，再更新SQLite索引。服务退出或重启时未完成记录标为 `INTERRUPTED`；备注与标签独立保存，回放不会改写原始文件。详细设计要求见 [SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md)，未完成的设计项不计为已验收。
+默认所有数据均放在项目内，停止服务后可一起备份或清理。网页删除处理记录不删除下载的原始公开数据。SQLite索引与记录文件应整体备份；`REPULSE_DATA_DIR`可指定运行记录目录，`REPULSE_DATASETS_DIR`可指定公开数据根目录。
+
+Linux服务器也可运行后端与数据，通过 `ssh -L 8765:127.0.0.1:8765 legion` 在Mac访问。当前展示规模无需GPU或模型训练。

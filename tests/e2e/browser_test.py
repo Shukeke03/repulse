@@ -1,5 +1,6 @@
-"""Real Chromium checks against an isolated local service (no user records changed)."""
+"""Real Chromium checks using the locally downloaded public exercise records."""
 
+import json
 import os
 import socket
 import subprocess
@@ -16,46 +17,49 @@ ROOT = Path(__file__).resolve().parents[2]
 
 @pytest.fixture(scope="module")
 def app_url(tmp_path_factory):
-    data = tmp_path_factory.mktemp("browser-data")
+    directory = tmp_path_factory.mktemp("public-browser-data")
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]
-    environment = {**os.environ, "REPULSE_DATA_DIR": str(data)}
+    log = (directory / "server.log").open("w+")
     process = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "backend.api.app:app", "--host", "127.0.0.1", "--port", str(port)],
         cwd=ROOT,
-        env=environment,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        env={**os.environ, "REPULSE_DATA_DIR": str(directory / "runtime")},
+        stdout=log,
+        stderr=log,
     )
     url = f"http://127.0.0.1:{port}"
-    for _ in range(100):
+    for _ in range(150):
         try:
-            urllib.request.urlopen(url + "/api/bootstrap", timeout=1)
+            with urllib.request.urlopen(url + "/api/bootstrap", timeout=1) as response:
+                bootstrap = json.load(response)
+                assert bootstrap["datasets"], "Download the public exercise records before browser tests"
             break
         except OSError:
             time.sleep(0.1)
     else:
         process.terminate()
-        pytest.fail("Local test service did not start")
+        log.seek(0)
+        pytest.fail("Local test service did not start: " + log.read())
     yield url
     process.terminate()
     try:
-        process.wait(timeout=8)
+        process.wait(timeout=10)
     except subprocess.TimeoutExpired:
         process.kill()
+        process.wait(timeout=3)
+    log.close()
 
 
 @pytest.fixture()
 def browser_page():
-    browser_dir = Path(sys.prefix) / "share" / "playwright-browsers"
-    if browser_dir.exists():
-        os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(browser_dir))
+    os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(Path(sys.prefix) / "share/playwright-browsers"))
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page(viewport={"width": 1440, "height": 1000})
+        page = browser.new_page(viewport={"width": 1440, "height": 1000}, accept_downloads=True)
         page.errors = []
-        page.on("pageerror", lambda e: page.errors.append(str(e)))
+        page.on("pageerror", lambda error: page.errors.append(str(error)))
         yield page
         browser.close()
 
@@ -66,74 +70,121 @@ def visit(page, url, route="/"):
     assert page.locator(".error-block").count() == 0
 
 
-def test_eight_routes_and_mobile_no_overflow(app_url, browser_page):
+def start_demo(page, url, name, mode="PYTHON", speed="10"):
+    visit(page, url)
+    page.locator("#session-name").fill(name)
+    page.locator("#session-source").select_option(mode)
+    page.locator("#session-speed").select_option(speed)
+    page.locator("#start-session").click()
+    page.wait_for_url("**/#/monitor")
+    page.locator("#monitor-origin").wait_for()
+    assert "公开人体记录" in page.locator("#monitor-origin").inner_text()
+    assert page.locator("#mark-end").count() == 0
+
+
+def wait_complete(page):
+    page.locator("#view-result").wait_for(timeout=90000)
+    assert "已完成" in page.locator("#session-controls").inner_text()
+
+
+def test_eight_routes_and_mobile_readability(app_url, browser_page):
     page = browser_page
     for route in ("/", "/monitor", "/sessions", "/replay", "/compare", "/lab", "/system", "/settings"):
         visit(page, app_url, route)
         assert page.locator("h1").inner_text()
+        for removed in ("随机种子", "正常恢复", "故障注入", "WORKSPACE", "每一次恢复"):
+            assert removed not in page.locator("body").inner_text()
+    visit(page, app_url)
+    assert (
+        page.locator("#session-dataset").input_value()
+        == page.request.get(app_url + "/api/bootstrap").json()["defaults"]["dataset_id"]
+    )
+    assert page.locator('[data-strategy="continuous"]').get_attribute("class").endswith("selected")
+    visit(page, app_url, "/lab")
+    page.locator("summary", has_text="查看原始文件与校验值").click()
+    with page.expect_download() as raw:
+        page.locator("#data-files a[download]").first.click()
+    assert raw.value.suggested_filename.endswith(".csv")
     page.set_viewport_size({"width": 360, "height": 780})
     for route in ("/", "/monitor", "/sessions", "/replay", "/compare", "/lab", "/system", "/settings"):
         visit(page, app_url, route)
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), route
+    assert page.locator('[data-nav="/settings"]').is_visible()
     assert not page.errors
 
 
-def test_live_fault_cancel_annotation_replay_and_export(app_url, browser_page):
+def test_public_data_complete_export_and_independent_replay(app_url, browser_page):
     page = browser_page
-    visit(page, app_url)
-    page.locator("#session-name").fill("浏览器验证记录")
-    page.locator("#start-session").click()
-    page.wait_for_url("**/#/monitor")
-    page.locator("#mark-end").wait_for()
-    page.wait_for_timeout(1300)
+    start_demo(page, app_url, "真实记录浏览器验收")
+    page.wait_for_function("document.querySelector('#session-controls')?.dataset.phase === 'RECOVERING'")
+    t0 = page.request.get(app_url + "/api/bootstrap").json()["active_session"]["t0_us"]
+    assert t0 == 10_000_000
+    page.locator("#freeze-view").click()
+    assert "视图已冻结" in page.locator("#frozen-notice").inner_text()
+    frozen = page.locator("#frozen-notice").inner_text()
+    page.locator('[data-nav="/lab"]').click()
+    page.locator("#data-record").wait_for()
+    assert "64 Hz" in page.locator("#data-metadata").inner_text()
+    assert page.locator("#apply-fault").count() == 0
+    page.locator('[data-nav="/monitor"]').click()
+    page.locator("#frozen-notice").wait_for()
+    assert page.locator("#frozen-notice").inner_text() == frozen
+    page.locator("#freeze-view").click()
     page.set_viewport_size({"width": 360, "height": 780})
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
     page.set_viewport_size({"width": 1440, "height": 1000})
-    page.locator("#freeze-view").click()
-    assert "视图已冻结" in page.locator("#frozen-notice").inner_text()
-    page.locator("#freeze-view").click()
-    page.locator("#mark-end").click()
-    page.wait_for_function("document.querySelector('#session-controls')?.dataset.phase === 'RECOVERING'")
-    page.locator('[data-nav="/lab"]').click()
-    page.locator("#apply-fault").wait_for()
-    page.locator("#fault-type").select_option("noise")
-    page.locator("#fault-amplitude").fill("2500")
-    page.locator("#fault-offset").fill("20")
-    page.locator("#apply-fault").click()
-    page.wait_for_function("document.querySelector('#fault-plans')?.innerText.includes('白噪声')")
-    page.locator("[data-fault]").click()
-    page.wait_for_function("document.querySelector('#fault-plans')?.innerText.includes('REVOKED')")
-    page.locator('[data-nav="/monitor"]').click()
-    page.locator("#cancel-session").wait_for()
-    page.once("dialog", lambda dialog: dialog.accept())
-    page.locator("#cancel-session").click()
-    page.locator("#view-result").wait_for()
+    wait_complete(page)
     page.locator("#view-result").click()
-    page.locator("#annotation-notes").fill("端到端验证备注")
-    page.locator("#annotation-tags").fill("浏览器, 验证")
+    page.locator("#annotation-notes").fill("来自公开人体记录的完整演示")
+    page.locator("#annotation-tags").fill("真实记录,验收")
     page.locator("#save-annotation").click()
-    page.wait_for_function(
-        "Array.from(document.querySelectorAll('.toast')).some(x=>x.innerText.includes('备注与标签已保存'))"
-    )
-    with page.expect_download() as info:
-        page.locator('[data-export="summary"]').click()
-    download = info.value
-    assert download.suggested_filename.endswith(".json")
+    page.wait_for_function("document.querySelector('#annotation-status')?.innerText === '已保存'")
+    for format, suffix in (("summary", ".json"), ("csv", ".csv"), ("raw", ".zip")):
+        with page.expect_download() as download:
+            page.locator(f'[data-export="{format}"]').click()
+        assert download.value.suggested_filename.endswith(suffix)
     page.locator("#detail-replay").click()
     page.locator("#replay-play").wait_for()
     assert page.locator("#replay-state").inner_text() == "已暂停"
+    assert page.locator("#replay-windows .badge").all_inner_texts() == ["尚未到达"] * 3
     page.locator("#replay-step").click()
     page.wait_for_function("parseFloat(document.querySelector('#replay-cursor').innerText) >= 1")
-    page.locator("#replay-play").click()
+    page.locator("#replay-seek").fill("76")
+    page.locator("#replay-seek").dispatch_event("change")
+    page.wait_for_function("parseFloat(document.querySelector('#replay-cursor').innerText) >= 76")
+    assert page.locator("#replay-windows .badge").nth(2).inner_text() == "尚未到达"
+    page.locator("#original-view").click()
+    page.wait_for_function(
+        "document.querySelector('#replay-mode-explanation')?.innerText.includes('不随回放游标变化')"
+    )
+    page.locator("#derived-view").click()
     page.locator("#replay-restart").click()
-    page.wait_for_function("parseFloat(document.querySelector('#replay-cursor').innerText) < 0.2")
-    with page.expect_download() as png:
+    page.wait_for_function("parseFloat(document.querySelector('#replay-cursor').innerText) < .2")
+    assert page.locator("#replay-windows .badge").all_inner_texts() == ["尚未到达"] * 3
+    with page.expect_download() as download:
         page.locator("#replay-png").click()
-    assert png.value.suggested_filename.endswith(".png")
+    assert download.value.suggested_filename.endswith(".png")
+    page.locator('[data-nav="/sessions"]').click()
+    row = page.locator("tbody tr").filter(has_text="真实记录浏览器验收")
+    row.locator("[data-detail]").click()
+    page.locator("#close-drawer").wait_for()
+    page.keyboard.press("Shift+Tab")
+    assert page.evaluate("document.activeElement.id") == "delete-record"
+    page.keyboard.press("Escape")
+    assert page.locator(".drawer").count() == 0
+    row.locator("[data-detail]").click()
+    page.once("dialog", lambda dialog: dialog.accept())
+    page.locator("#delete-record").click()
+    page.wait_for_function("!document.querySelector('.drawer')")
+    page.wait_for_function(
+        "!document.querySelector('#sessions-table')?.innerText.includes('真实记录浏览器验收')"
+    )
+    page.locator('[data-nav="/monitor"]').click()
+    page.wait_for_function("document.querySelector('#monitor-content')?.innerText.includes('当前没有演示')")
     assert not page.errors
 
 
-def test_settings_and_background_compare(app_url, browser_page):
+def test_settings_drafts_and_real_record_comparison(app_url, browser_page):
     page = browser_page
     visit(page, app_url, "/settings")
     page.locator('[data-setting="chart_seconds"]').select_option("30")
@@ -146,42 +197,32 @@ def test_settings_and_background_compare(app_url, browser_page):
     page.reload(wait_until="networkidle")
     assert page.locator('[data-setting="chart_seconds"]').input_value() == "30"
     page.locator('[data-nav="/compare"]').click()
-    page.locator("#compare-seeds").fill("1")
     page.locator("#compare-phases").fill("0")
     page.locator("#start-compare").click()
-    page.wait_for_function("document.querySelector('#compare-progress')?.innerText.includes('已完成')")
-    page.wait_for_function(
-        "document.querySelector('#compare-badge')?.innerText.includes('已完成')", timeout=60000
-    )
-    assert page.locator("#compare-results tbody tr").count() == 3
+    page.wait_for_function("document.querySelector('#compare-badge')?.innerText === '已完成'", timeout=60000)
+    assert page.locator("#compare-results > .table-wrap tbody tr").count() == 3
+    assert page.locator("#compare-seeds").count() == 0
+    for format in ("json", "csv"):
+        with page.expect_download() as download:
+            page.locator(f"#export-compare-{format}").click()
+        assert download.value.suggested_filename.endswith("." + format)
     assert not page.errors
 
 
-def test_qemu_source_controls_and_real_tasks(app_url, browser_page):
+def test_qemu_consumes_public_record_and_reports_real_tasks(app_url, browser_page):
     page = browser_page
-    visit(page, app_url)
     capabilities = page.request.get(app_url + "/api/bootstrap").json()["capabilities"]
-    if not capabilities.get("qemu"):
-        pytest.skip("QEMU or firmware is unavailable")
-    page.locator("#session-source").select_option("FREERTOS_QEMU")
-    assert page.locator('#session-scenario option[value="interference"]').is_disabled()
-    assert page.locator('[data-strategy="periodic"]').is_disabled()
-    page.locator("#session-name").fill("QEMU 浏览器验证")
-    page.locator("#start-session").click()
-    page.wait_for_url("**/#/monitor")
-    page.locator("#mark-end").wait_for()
-    page.wait_for_timeout(1100)
+    if not capabilities["qemu"]:
+        pytest.skip("Build QEMU to run real firmware browser verification")
+    start_demo(page, app_url, "FreeRTOS真实记录验收", mode="FREERTOS_QEMU")
+    page.wait_for_function(
+        "document.querySelector('#session-controls')?.dataset.phase === 'RECOVERING'", timeout=60000
+    )
     page.locator('[data-nav="/system"]').click()
-    page.locator(".system-card").first.wait_for()
-    assert "FREERTOS_QEMU" in page.locator(".system-card").nth(1).inner_text()
-    assert page.locator("table tbody tr").count() == 6
-    page.locator('[data-nav="/lab"]').click()
-    page.locator("#apply-fault").wait_for()
-    assert page.locator("#apply-fault").is_disabled()
-    assert "QEMU" in page.locator(".card-footer").inner_text()
+    page.locator("#system-tasks tbody tr").first.wait_for()
+    assert page.locator("#system-tasks tbody tr").count() == 6
+    assert "真实FreeRTOS" in page.locator("#system-task-note").inner_text()
     page.locator('[data-nav="/monitor"]').click()
-    page.locator("#cancel-session").wait_for()
-    page.once("dialog", lambda dialog: dialog.accept())
-    page.locator("#cancel-session").click()
-    page.locator("#view-result").wait_for()
+    wait_complete(page)
+    assert "FreeRTOS" in page.locator("#monitor-origin").inner_text()
     assert not page.errors

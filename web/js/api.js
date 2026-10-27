@@ -1,15 +1,32 @@
+const messages = {
+  ACTIVE_SESSION_EXISTS: '已有演示正在运行，请先返回恢复过程页面。',
+  SOURCE_UNAVAILABLE: '所选处理环境暂不可用，请查看系统状态。',
+  RAW_DATA_MISSING: '原始文件缺失，无法完成此操作。请查看数据与片段页面。',
+  REVISION_CONFLICT: '状态已变化，请刷新后重试。',
+  RECORD_IN_USE: '记录正在使用，无法删除。本次没有删除任何记录。',
+};
+
 export async function api(path, options = {}) {
   const method = options.method || 'GET';
   const headers = {'Content-Type': 'application/json', ...options.headers};
   if (method !== 'GET') headers['Idempotency-Key'] ||= crypto.randomUUID();
-  const response = await fetch(`/api${path}`, {...options, method, headers,
-    body: options.body === undefined ? undefined : JSON.stringify(options.body)});
+  let response;
+  try {
+    response = await fetch(`/api${path}`, {
+      ...options, method, headers,
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    });
+  } catch {
+    throw new Error('无法连接本地服务。请确认项目已启动，连接恢复后再查看操作结果。');
+  }
   let data;
   try { data = await response.json(); } catch { data = {}; }
   if (!response.ok) {
     const detail = data.detail || data;
-    const message = typeof detail === 'string' ? detail : detail.message || data.message || `请求失败（${response.status}）`;
-    const error = new Error(message); error.code = detail.code; error.status = response.status; error.detail = detail;
+    const code = detail.code || data.code;
+    const message = typeof detail === 'string' ? detail : detail.message || messages[code] || `操作未完成（HTTP ${response.status}）`;
+    const error = new Error(message);
+    error.code = code; error.status = response.status; error.detail = detail;
     throw error;
   }
   return data;
@@ -21,7 +38,9 @@ export function socket(path, onData, onState) {
     if (closed) return;
     ws = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/api${path}`);
     ws.onopen = () => { retry = 0; onState?.(true); };
-    ws.onmessage = event => { try { onData(JSON.parse(event.data)); } catch (error) { console.warn(error); } };
+    ws.onmessage = event => {
+      try { onData(JSON.parse(event.data)); } catch (error) { console.warn(error); }
+    };
     ws.onerror = () => ws.close();
     ws.onclose = () => {
       if (closed) return;
@@ -29,7 +48,14 @@ export function socket(path, onData, onState) {
       timer = setTimeout(connect, [1000, 2000, 5000, 10000][Math.min(retry++, 3)]);
     };
   }
-  function online() { clearTimeout(timer); if (ws?.readyState !== 1) connect(); }
-  window.addEventListener('online', online); connect();
-  return () => { closed = true; clearTimeout(timer); ws?.close(); window.removeEventListener('online', online); };
+  function online() {
+    clearTimeout(timer);
+    if (ws?.readyState !== WebSocket.OPEN && ws?.readyState !== WebSocket.CONNECTING) connect();
+  }
+  window.addEventListener('online', online);
+  connect();
+  return () => {
+    closed = true; clearTimeout(timer); ws?.close();
+    window.removeEventListener('online', online);
+  };
 }

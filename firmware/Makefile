@@ -1,10 +1,12 @@
 TARGET ?= qemu
 TOOLCHAIN ?= arm-none-eabi-
+PYTHON ?= python
+RUN_ARGS ?=
 CC := $(TOOLCHAIN)gcc
 SIZE := $(TOOLCHAIN)size
 KERNEL := vendor/FreeRTOS-Kernel
 BUILD := build/$(TARGET)
-COMMON := common/main.c common/dsp.c $(KERNEL)/tasks.c $(KERNEL)/queue.c $(KERNEL)/list.c
+COMMON := common/main.c common/dsp.c common/input.c $(KERNEL)/tasks.c $(KERNEL)/queue.c $(KERNEL)/list.c
 ifeq ($(TARGET),qemu)
 CPU := -mcpu=cortex-m3 -mthumb
 PORT := $(KERNEL)/portable/GCC/ARM_CM3
@@ -21,14 +23,14 @@ CFLAGS := $(CPU) $(DEFINE) -std=c11 -Os -g3 -Wall -Wextra -Wno-misleading-indent
 LDFLAGS := $(CPU) -T$(TARGET)/linker.ld -nostartfiles --specs=nano.specs --specs=nosys.specs -Wl,--gc-sections,-Map=$(BUILD)/repulse.map
 .PHONY: all run debug clean
 all: $(BUILD)/repulse.elf
-$(BUILD)/repulse.elf: $(SOURCES) common/FreeRTOSConfig.h $(TARGET)/linker.ld common/dsp.h
+$(BUILD)/repulse.elf: $(SOURCES) common/FreeRTOSConfig.h $(TARGET)/linker.ld common/dsp.h common/input.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(SOURCES) $(LDFLAGS) -lm -lc -lgcc -o $@
 	$(SIZE) $@
 run: all
-	qemu-system-arm -M mps2-an385 -cpu cortex-m3 -kernel $(BUILD)/repulse.elf -display none -monitor none -serial stdio
+	cd .. && $(PYTHON) -m scripts.run_qemu $(RUN_ARGS)
 # GDB: arm-none-eabi-gdb build/qemu/repulse.elf -ex 'target remote :3333'
 debug: all
-	qemu-system-arm -M mps2-an385 -cpu cortex-m3 -kernel $(BUILD)/repulse.elf -display none -monitor none -serial stdio -S -gdb tcp::3333
+	cd .. && $(PYTHON) -m scripts.run_qemu --gdb $(RUN_ARGS)
 clean:
 	rm -rf build

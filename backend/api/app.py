@@ -28,31 +28,22 @@ from backend.domain.models import (
     Annotation,
     Command,
     ComparisonConfig,
-    FaultConfig,
     SessionConfig,
 )
 from backend.engines.firmware_port import FirmwarePort
 from backend.engines.firmware_port import availability as firmware_available
 from backend.engines.replay import ReplayEngine
 from backend.engines.session import DomainError, SessionEngine
+from backend.sources.public_data import DatasetSource, get_dataset, list_datasets, record_directory
 from backend.storage.store import Store, atomic_json, json_text, utcnow
 
 PROJECT = Path(__file__).resolve().parents[2]
 
 
-def comparison_unit(config, seed, phase):
-    from backend.workers.compare import simulate
+def comparison_unit(config, dataset_id, phase):
+    from backend.workers.compare import compare_unit
 
-    return [
-        simulate(
-            seed=seed,
-            scenario=config["scenario"],
-            strategy=s,
-            phase=phase,
-            config=config.get("algorithm_config"),
-        )
-        for s in ("continuous", "periodic", "critical")
-    ]
+    return compare_unit(dataset_id, phase, config.get("algorithm_config"))
 
 
 def aggregate(results):
@@ -86,10 +77,21 @@ class Service:
             self.lockfile.close()
             raise RuntimeError("此数据目录已有RePulse进程运行。只允许单进程单worker。")
         self.store = Store(root)
-        self.settings = self.store.settings() or {"version": 1, **DEFAULTS}
+        stored = self.store.settings() or {}
+        display_keys = {"chart_seconds", "show_filtered", "ui_hz", "screen_timeout_s"}
+        self.settings = {
+            "version": max(1, stored.get("version", 0)),
+            **DEFAULTS,
+            **{key: stored[key] for key in display_keys if key in stored},
+        }
+        if stored.get("sample_rate") == 64:
+            self.settings.update({key: stored[key] for key in DEFAULTS if key in stored})
+        elif stored:
+            self.settings["version"] += 1
+            self.store.save_settings(self.settings)
         self.engine = None
         self.replays = {}
-        self.jobs = {j["id"]: j for j in self.store.jobs()}
+        self.jobs = {j["id"]: j for j in self.store.jobs() if "dataset_ids" in j.get("config", {})}
         self.job_tasks = {}
         self.pool = None
         self.lock = asyncio.Lock()
@@ -114,27 +116,27 @@ class Service:
         return result
 
     def capabilities(self):
-        qemu = firmware_available()
+        available = bool(list_datasets())
+        qemu = firmware_available() and available
         connected = bool(self.active() and self.engine.config["execution_mode"] == "FREERTOS_QEMU")
         return {
-            "python": True,
+            "python": available,
             "qemu": qemu,
             "device": False,
             "qemu_connected": connected,
-            "qemu_installed": qemu,
+            "qemu_installed": firmware_available(),
             "execution_modes": ["PYTHON"] + (["FREERTOS_QEMU"] if qemu else []),
-            "origins": ["SIM"],
+            "origins": ["PUBLIC_DATA"],
             "qemu_limits": {
-                "scenarios": ["normal", "early"],
-                "strategies": ["critical", "continuous"],
-                "speed": 1,
+                "strategies": ["continuous", "critical", "periodic"],
+                "speeds": [1, 2, 5, 10],
                 "fixed_parameters": True,
-                "motion_threshold": 0.65,
             },
-            "qemu_reason": "真实FreeRTOS内核；当前支持正常恢复与起点不足、关键窗优先与连续采集。固件合成源与Python源独立，硬件电流尚未实测"
+            "qemu_reason": "读取同一份公开记录，由FreeRTOS任务处理"
             if qemu
-            else "请先运行Build QEMU并安装QEMU",
-            "device_reason": "尚未连接STM32开发板和传感器",
+            else "需要本地数据和已构建的QEMU固件",
+            "device_reason": "尚未连接开发板和传感器",
+            "download_command": "python -m scripts.download_dataset",
         }
 
     async def mutate(self, request, callback):
@@ -167,24 +169,31 @@ class Service:
         config = job["config"]
         try:
             loop = asyncio.get_running_loop()
-            for seed in range(config["seed_start"], config["seed_start"] + config["seeds"]):
+            for dataset_id in config["dataset_ids"]:
                 for phase in config["phases"]:
                     if job["status"] == "CANCELLING":
                         job["status"] = "CANCELLED"
                         self.store.save_job(job)
                         return
-                    job["current_seed"], job["current_phase"] = seed, phase
+                    job["current_dataset_id"], job["current_phase"] = dataset_id, phase
                     try:
-                        rows = await loop.run_in_executor(self.pool, comparison_unit, config, seed, phase)
-                        for row in rows:
-                            row["seed"], row["phase"] = seed, phase
+                        rows = await loop.run_in_executor(
+                            self.pool, comparison_unit, config, dataset_id, phase
+                        )
                         job["results"].extend(rows)
                         job["progress"]["completed"] += 3
                         job["metrics"] = aggregate(job["results"])
+                        from backend.workers.compare import summarize
+
+                        summary = summarize(
+                            job["results"], len(config["dataset_ids"]) * len(config["phases"])
+                        )
+                        job["paired_units"] = summary["paired_units"]
+                        job["excluded_count"] = summary["excluded_units"]
                     except Exception as exc:
                         job["progress"]["failed"] += 3
                         job["excluded_count"] += 1
-                        job["errors"].append({"seed": seed, "phase": phase, "message": str(exc)})
+                        job["errors"].append({"dataset_id": dataset_id, "phase": phase, "message": str(exc)})
                     self.store.save_job(job)
                     folder = self.store.root / "comparisons" / job["id"]
                     atomic_json(folder / "progress.json", job)
@@ -193,6 +202,11 @@ class Service:
         except asyncio.CancelledError:
             job["status"] = "INTERRUPTED"
         finally:
+            from backend.workers.compare import summarize
+
+            summary = summarize(job["results"], len(config["dataset_ids"]) * len(config["phases"]))
+            job["paired_units"] = summary["paired_units"]
+            job["excluded_count"] = summary["excluded_units"]
             self.store.save_job(job)
             atomic_json(self.store.root / "comparisons" / job["id"] / "progress.json", job)
 
@@ -219,7 +233,7 @@ def create_app(data_root=None):
         yield
         await app.state.service.close()
 
-    app = FastAPI(title="RePulse 复脉 API", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="RePulse 复脉 API", version="0.2.0", lifespan=lifespan)
 
     def service(request):
         return request.app.state.service
@@ -248,6 +262,18 @@ def create_app(data_root=None):
             },
         )
 
+    @app.exception_handler(ValueError)
+    async def invalid_data(request, exc):
+        return JSONResponse(
+            status_code=422,
+            content={
+                "code": "INVALID_PARAMETER",
+                "message": str(exc),
+                "field_errors": {},
+                "request_id": uuid.uuid4().hex,
+            },
+        )
+
     @app.exception_handler(OSError)
     async def storage_error(request, exc):
         return JSONResponse(
@@ -264,13 +290,53 @@ def create_app(data_root=None):
     async def bootstrap(request: Request):
         s = service(request)
         return {
-            "version": "0.1.0",
+            "version": "0.2.0",
             "stream_id": s.run_id,
             "defaults": s.settings,
             "capabilities": s.capabilities(),
             "active_session": s.active().snapshot() if s.active() else None,
-            "scenarios": ["normal", "interference", "early", "detachment", "gap", "timeout"],
+            "datasets": list_datasets(),
         }
+
+    @app.get("/api/datasets")
+    async def datasets():
+        return {"items": list_datasets(), "download_command": "python -m scripts.download_dataset"}
+
+    @app.get("/api/datasets/{dataset_id}/samples")
+    async def dataset_samples(
+        dataset_id: str, start_us: int = 0, end_us: int | None = None, max_points: int = 2000
+    ):
+        if start_us < 0 or not 1 <= max_points <= 20000 or (end_us is not None and end_us < start_us):
+            raise DomainError("INVALID_PARAMETER", "请使用有效的时间范围和显示点数", 422)
+        source = DatasetSource({"dataset_id": dataset_id, "strategy": "continuous"})
+        rows = [
+            r
+            for r in source.all_samples
+            if r["time_us"] >= start_us and (end_us is None or r["time_us"] < end_us)
+        ]
+        stride = max(1, (len(rows) + max_points - 1) // max_points)
+        return {
+            "samples": rows[::stride],
+            "first_us": 0,
+            "last_us": source.duration_us,
+            "t0_us": source.t0_us,
+            "sample_hz": source.sample_hz,
+            "unit": "设备相对单位",
+            "accel_unit": "g",
+            "decimation": stride,
+            "origin": "PUBLIC_DATA",
+        }
+
+    @app.get("/api/datasets/{dataset_id}")
+    async def dataset_detail(dataset_id: str):
+        return get_dataset(dataset_id)
+
+    @app.get("/api/datasets/{dataset_id}/files/{name}")
+    async def dataset_file(dataset_id: str, name: str):
+        metadata = get_dataset(dataset_id)
+        if name not in {entry["name"] for entry in metadata["files"]}:
+            raise DomainError("NOT_FOUND", "原始数据文件不存在", 404)
+        return FileResponse(record_directory(dataset_id) / name, filename=f"{metadata['subject']}_{name}")
 
     @app.post("/api/sessions")
     async def create_session(body: SessionConfig, request: Request):
@@ -413,9 +479,9 @@ def create_app(data_root=None):
             "samples": selected[::stride],
             "first_us": rows[0]["time_us"] if rows else 0,
             "last_us": rows[-1]["time_us"] if rows else 0,
-            "unit": "ADC counts",
+            "unit": "设备相对单位" if snap["origin"] == "PUBLIC_DATA" else "ADC counts",
             "origin": snap["origin"],
-            "sample_rate_hz": 100,
+            "sample_rate_hz": snap.get("sample_hz", snap.get("config_snapshot", {}).get("sample_rate", 64)),
             "decimation": stride,
         }
 
@@ -560,12 +626,18 @@ def create_app(data_root=None):
         def action():
             if any(j["status"] in {"RUNNING", "CANCELLING"} for j in s.jobs.values()):
                 raise DomainError("COMPARISON_ACTIVE", "已有策略比较正在进行")
+            for dataset_id in body.dataset_ids:
+                get_dataset(dataset_id)
             job = {
                 "id": uuid.uuid4().hex,
                 "status": "RUNNING",
                 "created_at_utc": utcnow(),
                 "config": {**body.model_dump(), "algorithm_config": dict(s.settings)},
-                "progress": {"completed": 0, "failed": 0, "total": body.seeds * len(body.phases) * 3},
+                "progress": {
+                    "completed": 0,
+                    "failed": 0,
+                    "total": len(body.dataset_ids) * len(body.phases) * 3,
+                },
                 "results": [],
                 "metrics": [],
                 "excluded_count": 0,
@@ -590,6 +662,65 @@ def create_app(data_root=None):
     async def comparison(jid: str, request: Request):
         return get_job(service(request), jid)
 
+    @app.post("/api/comparisons/{jid}/exports")
+    async def comparison_export(jid: str, request: Request):
+        s = service(request)
+        body = await request.json()
+
+        def action():
+            job = get_job(s, jid)
+            if job["status"] in {"RUNNING", "CANCELLING"}:
+                raise DomainError("INVALID_STATE", "请等待比较结束或取消后再导出")
+            fmt = body.get("format", "json")
+            eid = uuid.uuid4().hex
+            folder = s.store.root / "exports" / eid
+            folder.mkdir()
+            if fmt == "json":
+                path = folder / "comparison.json"
+                atomic_json(path, job)
+            elif fmt == "csv":
+                import csv
+
+                path = folder / "comparison.csv"
+                with path.open("w", newline="", encoding="utf-8-sig") as f:
+                    writer = csv.writer(f)
+                    writer.writerow(
+                        [
+                            "dataset_id",
+                            "strategy",
+                            "phase_seconds",
+                            "window_seconds",
+                            "valid",
+                            "pulse_bpm",
+                            "reasons",
+                            "input_hash",
+                            "on_seconds",
+                            "difference_from_continuous_bpm",
+                        ]
+                    )
+                    for row in job["results"]:
+                        for window in row["windows"]:
+                            center = window["center_seconds"]
+                            writer.writerow(
+                                [
+                                    row["dataset_id"],
+                                    row["strategy"],
+                                    row["phase"],
+                                    center,
+                                    window["valid"],
+                                    window["pulse_bpm"],
+                                    "|".join(window["reasons"]),
+                                    row["input_hash"],
+                                    row["on_seconds"],
+                                    row["same_window_error_bpm"].get(str(center)),
+                                ]
+                            )
+            else:
+                raise DomainError("INVALID_PARAMETER", "导出格式仅支持json或csv", 422)
+            return {"export_id": eid, "url": "/api/downloads/" + eid, "filename": path.name}
+
+        return await s.mutate(request, action)
+
     @app.post("/api/comparisons/{jid}/cancel")
     async def cancel_comparison(jid: str, request: Request):
         s = service(request)
@@ -601,85 +732,6 @@ def create_app(data_root=None):
             job["status"] = "CANCELLING"
             s.store.save_job(job)
             return job
-
-        return await s.mutate(request, action)
-
-    @app.post("/api/faults")
-    async def create_fault(body: FaultConfig, request: Request):
-        s = service(request)
-
-        def action():
-            if (
-                not s.active()
-                or s.engine.id != body.target_id
-                or s.engine.state not in {"PREPARING", "RECOVERING"}
-            ):
-                raise DomainError("INVALID_STATE", "请选择正在运行的模拟会话作为故障目标")
-            engine = s.engine
-            if engine.config["execution_mode"] != "PYTHON":
-                raise DomainError(
-                    "SOURCE_UNAVAILABLE", "当前QEMU固件未开放故障注入，请另建Python模拟试验", 422
-                )
-            fault = {
-                **body.model_dump(),
-                "id": uuid.uuid4().hex,
-                "status": "PLANNED",
-                "duration_us": round(body.duration_s * 1e6),
-                "start_offset_us": round(body.start_offset_s * 1e6),
-            }
-            amp = fault["params"].get("amplitude", 0)
-            if not isinstance(amp, (float, int)) or not 0 <= amp <= 262143:
-                raise DomainError("INVALID_PARAMETER", "故障幅度应为0至262143", 422)
-            for key in ("frequency", "frequency_hz"):
-                frequency = fault["params"].get(key)
-                if frequency is not None and (
-                    not isinstance(frequency, (int, float))
-                    or not math.isfinite(frequency)
-                    or not 0 < frequency <= 50
-                ):
-                    raise DomainError("INVALID_PARAMETER", "故障频率应大于0且不超过50Hz", 422)
-            for key, value in fault["params"].items():
-                if isinstance(value, (int, float)) and not math.isfinite(value):
-                    raise DomainError("INVALID_PARAMETER", "故障参数必须是有限数值", 422)
-            if body.anchor == "now":
-                fault["start_us"] = engine.time_us + round(body.start_offset_s * 1e6)
-            elif body.anchor == "prepare":
-                fault["start_us"] = round(body.start_offset_s * 1e6)
-                if fault["start_us"] < engine.time_us:
-                    raise DomainError("INVALID_PARAMETER", "无法向已写入的过去注入故障", 422)
-            elif engine.t0_us is not None:
-                fault["start_us"] = engine.t0_us + round(body.start_offset_s * 1e6)
-                if fault["start_us"] < engine.time_us:
-                    raise DomainError("INVALID_PARAMETER", "故障开始时间已过去，请选择现在", 422)
-            engine.faults.append(fault)
-            engine.revision += 1
-            engine.add_event("FAULT_PLANNED", "故障已登记：" + body.type, fault=fault)
-            return fault
-
-        return await s.mutate(request, action)
-
-    @app.post("/api/faults/{fid}/commands")
-    async def fault_command(fid: str, request: Request):
-        s = service(request)
-        body = await request.json()
-
-        def action():
-            if not s.engine:
-                raise DomainError("NOT_FOUND", "故障不存在", 404)
-            fault = next((f for f in s.engine.faults if f["id"] == fid), None)
-            if fault is None:
-                raise DomainError("NOT_FOUND", "故障不存在", 404)
-            kind = body.get("type")
-            if kind == "revoke" and fault["status"] == "PLANNED":
-                fault["status"] = "REVOKED"
-            elif kind == "stop" and fault["status"] == "RUNNING":
-                fault["status"] = "STOPPED"
-                fault["stopped_at_us"] = s.engine.time_us
-            else:
-                raise DomainError("INVALID_STATE", "只能撤销未开始的故障或停止运行中的故障")
-            s.engine.revision += 1
-            s.engine.add_event("FAULT_" + fault["status"], "故障操作已生效", fault_id=fid)
-            return fault
 
         return await s.mutate(request, action)
 
@@ -696,12 +748,8 @@ def create_app(data_root=None):
             if body.get("version") != s.settings["version"]:
                 raise DomainError("REVISION_CONFLICT", "设置已变化，请重新载入")
             updated = {**s.settings, **body}
-            if updated.get("chart_seconds") not in {10, 30} or updated.get("theme") not in {
-                "light",
-                "dark",
-                "system",
-            }:
-                raise DomainError("INVALID_PARAMETER", "图表长度应为10或30秒，主题应为light/dark/system", 422)
+            if updated.get("chart_seconds") not in {10, 30} or updated.get("theme") not in {"light"}:
+                raise DomainError("INVALID_PARAMETER", "图表长度应为10或30秒；当前版本使用浅色主题", 422)
             if updated.get("ui_hz", 10) not in {5, 10}:
                 raise DomainError("INVALID_PARAMETER", "显示刷新应为5或10Hz", 422)
             if (
@@ -711,13 +759,25 @@ def create_app(data_root=None):
                 raise DomainError("INVALID_PARAMETER", "亮屏时长应为10至120秒", 422)
             for k, lo, hi in (
                 ("stale_seconds", 0.5, 10),
-                ("prepare_timeout_seconds", 30, 1800),
                 ("motion_threshold", 0.05, 5),
             ):
-                if not isinstance(updated[k], (int, float)) or not lo <= updated[k] <= hi:
+                if (
+                    not isinstance(updated[k], (int, float))
+                    or not math.isfinite(updated[k])
+                    or not lo <= updated[k] <= hi
+                ):
                     raise DomainError("INVALID_PARAMETER", f"{k}应为{lo}至{hi}", 422)
+            if updated.get("strategy") not in {"continuous", "critical", "periodic"}:
+                raise DomainError("INVALID_PARAMETER", "请选择已有采集策略", 422)
+            if (
+                not isinstance(updated.get("min_signal_std"), (int, float))
+                or not math.isfinite(updated["min_signal_std"])
+                or not 0.001 <= updated["min_signal_std"] <= 100
+            ):
+                raise DomainError("INVALID_PARAMETER", "有效波动阈值应为0.001至100", 422)
             for k, value in (
-                ("sample_rate", 100),
+                ("sample_rate", 64),
+                ("sample_hz", 64),
                 ("band_low", 0.5),
                 ("band_high", 5.0),
                 ("warmup_seconds", 2.0),
@@ -740,10 +800,10 @@ def create_app(data_root=None):
         qemu = bool(active and active.config["execution_mode"] == "FREERTOS_QEMU")
         snapshot = active.snapshot() if active else None
         return {
-            "version": "0.1.0",
+            "version": "0.2.0",
             "python_version": platform.python_version(),
-            "protocol_version": 1,
-            "algorithm_version": "1.0.0",
+            "protocol_version": 2,
+            "algorithm_version": "2.0.0",
             "platform": platform.platform(),
             "uptime_seconds": round(time.monotonic() - s.started, 1),
             "service": "RUNNING",
@@ -762,7 +822,7 @@ def create_app(data_root=None):
                 [
                     {
                         "name": "SessionEngine",
-                        "kind": "应用模拟任务",
+                        "kind": "Python记录处理",
                         "state": active.state,
                         "priority": None,
                         "stack_high_water": None,
@@ -778,7 +838,7 @@ def create_app(data_root=None):
                 "data_age_s": active.snapshot()["latest_result"].get("data_age_s") if active else None,
             },
             "clock": {
-                "type": "monotonic",
+                "type": "recording timestamps",
                 "engine_time_us": active.time_us if active else None,
                 "t0_us": active.t0_us if active else None,
             },

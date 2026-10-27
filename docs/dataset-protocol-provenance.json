@@ -1,0 +1,11 @@
+{
+  "source_url": "https://physionet.org/files/wearable-device-dataset/1.0.1/Wearable_Dataset.ipynb",
+  "download_mirror": "https://physionet-open.s3.amazonaws.com/wearable-device-dataset/1.0.1/Wearable_Dataset.ipynb",
+  "sha256": "47a3c4ec2c47f36c2917be32dd4f076f443ae56c1ca79c3b128703b60456dfdb",
+  "cell_index": 14,
+  "attachment": "aerobic_tags_v1.png",
+  "image_sha256": "0bb6bf33aec5b1eef8ea8a544ac3770a663d1a59058eb1e8a74f0a6150e97e30",
+  "verified_mapping": "Aerobic v1: tag11=110rpm end/cooldown start; tag12=cooldown end/rest start",
+  "tag_index_zero_based": 10,
+  "attribution": "Hongn et al., PhysioNet Wearable Device Dataset v1.0.1, DOI10.13026/he0v-tf17, ODC Attribution1.0"
+}

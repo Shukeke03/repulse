@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "repulse"
-version = "0.1.0"
+version = "0.2.0"
 description = "RePulse 复脉 — 运动恢复关键时间窗监护系统"
 requires-python = ">=3.12"
 dependencies = ["fastapi", "uvicorn[standard]", "pydantic>=2", "numpy", "scipy", "pyserial"]

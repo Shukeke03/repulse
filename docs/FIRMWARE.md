@@ -1,73 +1,93 @@
-# FreeRTOS、QEMU 与 STM32 工程
+# FreeRTOS真实记录处理
 
-本项目含可实际运行的 FreeRTOS 内核。Python 模式在电脑端执行采样、状态和算法；QEMU 模式由 Cortex-M3 固件执行采样计划、状态转换、滤波、质量判断和三个关键窗口，Python 只传递命令、接收结果和保存记录。
+QEMU目标运行真实FreeRTOS内核。数据来自项目内已下载的PhysioNet记录；固件中不含波形生成器。两种处理方式共用Python的加速度单位换算、1秒因果重力估计、动态运动量计算及32→64 Hz前值保持。Python同时负责校验文件、传输观测、保存结果和提供页面；QEMU中的Acquisition与DSP任务负责采集策略、PPG滤波、峰检测、质量判定和三个关键窗口。
 
-## 已安装工具与来源
+## 数据与时间
 
-- Miniforge 环境：`/Users/shuxing/miniforge3/envs/repulse`。
-- Arm GNU Toolchain 14.3.Rel1（GCC 14.3.1，20250623）：从 Arm 官方下载归档，解压到环境内 `opt/arm-gnu-toolchain-14.3.rel1-darwin-arm64-arm-none-eabi`，环境 `bin/` 中有编译器、GDB、size 等工具的符号链接。没有将编译器安装到全局目录。
-- QEMU 11.0.1：经现有 Homebrew 安装到 `/opt/homebrew`，并由 Homebrew 管理 glib、pixman 等依赖。这是环境与 VS Code 插件以外额外安装的软件。
-- FreeRTOS-Kernel V11.2.0：官方仓库提交 `0adc196d4bd52a2d91102b525b0aafc1e14a2386`，源码置于 `firmware/vendor/FreeRTOS-Kernel`，保留 MIT 许可证。清除了新克隆仓库的 Git 元数据，只保留两个使用的 GCC 架构移植端口。来源记录在 `firmware/vendor/manifest.json`。
+- 输入为Empatica E4原始BVP（64Hz、有正负的a.u.）及32Hz加速度导出的动态运动量（g）。不将BVP解释为MAX30102的ADC值，不进行100Hz升采样。
+- 加速度处理与片段的来源、许可证、SHA256、事件映射见 [DATASET.md](DATASET.md)。HR.csv仅作原设备输出对照，不进入DSP，也不是独立ECG金标准。
+- 片段从运动负荷结束前10秒开始，恢复段固定124秒，共134秒、8576个脉搏波样本。t0来自已核对的原始阶段标记，在记录时间轴上固定为10秒，不能由网页按键移动。
+- 播放倍率控制观测送入固件的节奏；窗口、滤波和结果时间仍使用原始样本时间。主机耗时和QEMU任务计数不代表STM32实机性能。
 
-官方资料：[QEMU MPS2 板卡文档](https://www.qemu.org/docs/master/system/arm/mps2.html)、[FreeRTOS 内核源码](https://github.com/FreeRTOS/FreeRTOS-Kernel/tree/V11.2.0)、[Arm GNU 工具链](https://developer.arm.com/Tools%20and%20Software/GNU%20Toolchain)。
+## 运行链路
 
-## 构建与运行
+```text
+本地原始文件 → SHA256校验 → 带版本与CRC32的观测文件
+                              ↓
+                       QEMU Acquisition任务
+                              ↓ 先应用采集策略
+                         qRaw → C DSP
+                              ↓
+                固件滤波样本、窗口结果与任务诊断
+                              ↓
+                      Python归档 → 浏览器
+```
 
-在项目根目录执行：
+采用QEMU官方支持的ARM semihosting文件通道传递批量观测。UART只传控制命令、确认和内核状态，避免把成块波形塞入逐字节控制串口。实际DSP输出由C写入，不由Python重算后代替。
+
+每个实例仅使用项目 `data/transports/{id}/` 下两个受控的相对文件名：
+
+- `observations.bin`：版本2、小端、64Hz、样本总数、t0、观察时长、策略、相位、周期宽度、播放倍率、头CRC32与负载CRC32。每条观测带序号、原始片段时间、BVP、运动量及缺口。
+- `processed.bin`：版本头及固件实际处理后的样本、采集状态、区段号和滤波值。结束时检查序号、条数、输出CRC32和输入CRC32；不完整或损坏的传输不得宣布完成。
+
+原始浮点观测在固件边界转换为IEEE754 float32；这种数值表示转换记录在输入清单中。Python从原始记录按序号关联设备参考脉率和来源时间，只用于归档与对照显示。
+
+semihosting仅用于本项目可信固件，不接收网页传入的任意路径。运行结束或退出后删除临时通道文件，正式CSV、事件、结果和manifest另行归档。参考：[QEMU官方semihosting说明](https://www.qemu.org/docs/master/about/emulation.html#semihosting)、[Arm semihosting ABI](https://github.com/ARM-software/abi-aa/blob/main/semihosting/semihosting.rst)。
+
+## 构建、运行与调试
+
+在项目根目录、`repulse`环境中执行：
 
 ```sh
-conda activate repulse
 make -C firmware TARGET=qemu
 make -C firmware TARGET=stm32
-make -C firmware TARGET=qemu run
 ```
 
-应用中的 QEMU 会话会启动自己的独立 QEMU 子进程，通过标准输入输出上的 UART JSON 行协议连接，不与终端中手动启动的示范实例混用。退出服务、完成或取消记录后释放子进程。网页不能执行任意 shell 命令。
-
-调试：
+应用工作台可直接选择FreeRTOS处理。若要在终端运行一个独立的真实记录实例：
 
 ```sh
-make -C firmware TARGET=qemu debug
-arm-none-eabi-gdb firmware/build/qemu/repulse.elf -ex 'target remote :3333'
+python -m scripts.run_qemu --dataset-id wearable-aerobic-s02 --speed 5
 ```
 
-QEMU 目标为官方 `mps2-an385`、Cortex-M3；它不是 STM32 外设模拟器。STM32L476RG 使用独立 Cortex-M4F 编译参数、启动文件入口、链接地址和 BSP，交叉编译产物在 `firmware/build/stm32/repulse.elf`。
+该命令准备受控输入、启动QEMU、自动开始处理并显示固件JSON诊断。按Ctrl+C安全退出。不能只运行没有观测文件的裸QEMU命令来获得演示数据。
 
-## 真实内核任务和通道
-
-固件以静态内存创建 Acquisition、DSP、Session、Feedback、UI、System 六个任务。优先级为6至1，Idle 为内核任务。qRaw 有8个槽位，每块不超过16点；UI、Session、Feedback 分别有独立长度1邮箱；事件和遥测具有独立有界队列。没有用 Python 线程冒充 FreeRTOS 任务。QEMU的CMSDK UART接收缓冲为单字节，因此Session任务以1毫秒轮询命令传输，业务检查满足20毫秒期限；Idle使用WFI等待中断，避免无任务时忙等。
-
-每条诊断快照报告真实任务心跳、`eTaskGetState`、`uxTaskGetStackHighWaterMark`、队列占用和丢块计数。System 任务初始栈1024 words，其余与设计规格一致；增加 System 栈是为有界 JSON 格式化及 UART 输出保留实测余量。诊断中的栈余量单位是words。QEMU 的这些计数不能当作 STM32 的运行时间、电流、栈余量或硬件测试结果。
-
-数据样本包含固件采样时钟、序号、区段号、PPG、加速度、采集开关、缺口与固件滤波值。原始数据归档不从网页显示抽样恢复。
-
-## 首版 QEMU 接入能力
-
-- 正常恢复、起点不足场景；种子传入固件，使用与 Python 源相同的解析相位、无状态噪声公式和 ADC 单位。
-- 关键窗口优先、连续采集策略；等预算周期策略请在 Python 模式使用。
-- 固件权威时钟1倍速度；应用拒绝把 Python 的加速倍率伪装为内核运行。
-- 首版固件使用固定算法/时间参数。若全局设置修改了这些默认参数，QEMU创建会明确拒绝，提示恢复默认或使用Python，不静默忽略。配置快照记录实际C运动质量阈值0.65，其余固定值为100Hz、0.5–5Hz、2秒预热、8秒窗口、2秒过期和1800秒准备上限；接触阈值暂不可配置。
-- 支持 `start_prepare`、`mark_end`、`cancel` 命令，带command_id与expected_revision；开始确认后才发布状态，t0在固件中只写一次。
-- 三个固定8秒窗口、两节因果IIR、区段重启2秒预热；支持缺测和独立变化量依赖。当前值在计划关闭、缺口和预热时失效。
-- QEMU 现场故障注入与其余故障场景尚未开放；界面明确拒绝，使用 Python 信号实验室完成相应实验。
-
-C DSP 与 Python 的原理及默认系数一致。自动对照验证关注窗口有效性和数值误差（2 BPM以内），并不把所有边界和原因组合声明为逐位等价。关键窗口保存的是脉率变化量，不提供临床风险判定。
-
-## 验证
+调试时先启动：
 
 ```sh
-python -m pytest tests/unit/test_firmware_protocol.py -q
-python scripts/verify_qemu.py
+python -m scripts.run_qemu --dataset-id wearable-aerobic-s02 --gdb
 ```
 
-第一条包含5种完全相同观测输入的 Python 与本机编译 C DSP 对照，以及真实 QEMU 的内核握手、六任务、准备、标记、取消和归档测试，并检查未传入固件的自定义参数会被明确拒绝。第二条使用默认QEMU虚拟时钟运行完整124秒客体恢复过程（客体时间与墙钟耗时分开记录），使用收到的 QEMU 原始观测在独立 Python 处理器中离线计算，验证三个窗口并保存 `docs/verification/qemu-full-cycle.json`。离线参考不会替代实时固件结果。
+然后使用VS Code的QEMU GDB attach配置，或另一个终端：
 
-测试输出和报告应以本机实际执行文件为准；未运行的环境或输入不记为通过。构建的 map 文件可用于核对静态 RAM，主线程栈与未使用空间另行留量。
+```sh
+arm-none-eabi-gdb firmware/build/qemu/repulse.elf -ex 'target remote localhost:3333'
+```
 
-## STM32 边界
+调试实例在GDB连接并继续执行后，才会打开输入并启动内核；HTTP桥接不使用暂停启动参数，避免握手等待死锁。
 
-STM32 工程完成了独立交叉编译，BSP 明确返回传感器不可用。预留 MAX30102（I2C1 PB6/PB7）、LIS2DW12（I2C2 PB10/PB11）、OLED（SPI1 PA5/PA7）、A/B按钮等接口；尚未接线、标定、编写并验证真实 I2C/FIFO 事务和显示驱动。没有硬件时 DEVICE 入口保持不可用，不生成电池电压、电流或人体数据。
+## 任务、算法和能力
 
-后续上板前须完成时钟、电气、SWD、驱动时限与真实采样时间映射验证；这里的交叉编译通过不代表已完成实机功能验收。
+六个任务与优先级：Acquisition 6、DSP 5、Session 4、Feedback 3、UI 2、System 1；Idle由内核提供。所有任务和队列静态分配。qRaw含8个槽位、每块最多16点；UI、Session、Feedback各有独立长度1结果邮箱。事件走独立有界队列。
 
-本次完整QEMU验证通过：客体恢复124秒，墙钟耗时204.07秒，13270个时间点，三个窗口均有效，固件脉率150/94/78 BPM，独立Python参考150/93.75/77.92 BPM，原始与遥测丢块均为0。之后仅调整UART轮询周期以降低命令延迟，最新协议交互已通过自动测试。
+支持连续、关键窗口优先、等预算周期三种采集策略，以及0.5至10倍记录播放。周期策略按相位求解与关键窗方案相同的连续时间预算，实际64Hz采样量化差单独保留。策略关闭PPG发生在固件Acquisition向qRaw提交之前。
+
+C算法使用原始64Hz、两个SOS节的0.5–5Hz因果带通、2秒重启预热、8秒（512样本）窗口与1秒估计步长。当前固定质量参数包括0.05a.u.最低波动、0.35g运动阈值、间期一致性和自相关检查。未实现的自定义固件算法参数会明确拒绝，配置快照记录实际参数。质量不足时给出缺测，不复制设备HR来填补。
+
+任务心跳、状态、优先级、栈高水位、qRaw占用与丢块计数均来自真实内核。当前两目标的静态BSS约49KB；具体构建以size和map结果为准。
+
+## 实际验证
+
+```sh
+python -m pytest tests/unit/test_firmware_protocol.py
+python scripts/verify_qemu.py --dataset-id wearable-aerobic-s02 --speed 10
+```
+
+测试覆盖：S01/S02真实观测的三策略C/Python离线一致性、输入头和CRC、真实QEMU六任务、取消、固定t0、三个策略的完整134秒过程、损坏输入拒绝。有效值按0.05BPM容差比较；两实现可能报告不同数量的质量原因，但不得把无效窗口变成有效窗口。
+
+完整验证脚本核对每个固件输出样本与所选真实输入的时间、序号、策略开关和float32值；确认8576个样本、124秒恢复段及零丢块后，才生成 [qemu-real-data.json](verification/qemu-real-data.json)。Python参考只在固件结果已经发布后离线计算。S02的起点波形有运动伪影，应保留缺测，不能为了演示完整数值改变t0或降低质量规则。
+
+## 工具和硬件边界
+
+本机工具为QEMU11.0.1、Arm GNU14.3.Rel1（GCC14.3.1）及FreeRTOS-Kernel V11.2.0。QEMU由Homebrew管理；Arm工具链位于Miniforge环境的 `opt/`，不在全局安装编译器。FreeRTOS官方提交和MIT许可保留于 `firmware/vendor/manifest.json` 及上游目录。
+
+QEMU目标为MPS2 AN385 Cortex-M3，不是STM32外设模型。STM32L476RG仍使用独立启动代码、链接地址、Cortex-M4F移植及BSP，交叉编译通过；BSP明确返回传感器不可用。MAX30102、LIS2DW12、显示、按键、接线和佩戴验证尚未完成，DEVICE入口保持不可用。没有电池、电流或真实人体采集指标可由QEMU代替。

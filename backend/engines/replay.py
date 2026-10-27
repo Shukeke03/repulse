@@ -1,10 +1,10 @@
-"""Independent replay clock; seeking deterministically rebuilds causal DSP from the first sample."""
+"""Saved-run playback with an independent clock and deterministic native-rate DSP rebuild."""
 
 import asyncio
 import copy
-import math
 import time
 import uuid
+from bisect import bisect_left
 
 from backend.algorithms.policies import recovery_result
 from backend.algorithms.processor import Processor
@@ -13,15 +13,20 @@ from backend.engines.session import DomainError
 
 class ReplayEngine:
     def __init__(self, store, source):
+        if source.get("origin") != "PUBLIC_DATA":
+            raise DomainError(
+                "SOURCE_UNAVAILABLE", "早期演示记录仅保留原始导出；当前版本只处理公开数据记录", 422
+            )
         self.id = uuid.uuid4().hex
         self.source_id = source["id"]
         self.source = copy.deepcopy(source)
         self.samples = store.read_samples(self.source_id)
         if not self.samples:
             raise DomainError("RAW_DATA_MISSING", "原始波形缺失，无法回放", 422)
-        self.cursor = self.samples[0]["time_us"]
-        self.first = self.cursor
-        self.end = self.samples[-1]["time_us"] + 10000
+        self.period_us = round(1e6 / source.get("sample_hz", source["config_snapshot"].get("sample_hz", 64)))
+        self.timestamps = [r["time_us"] for r in self.samples]
+        self.first = self.cursor = self.timestamps[0]
+        self.end = self.timestamps[-1] + self.period_us
         self.playing = False
         self.speed = 1.0
         self.closed = False
@@ -30,44 +35,64 @@ class ReplayEngine:
         self.processor = Processor(source["config_snapshot"])
         self.processed_index = 0
         self.windows = []
+        self._refresh_windows()
         self.task = asyncio.create_task(self.run())
+
+    def _refresh_windows(self):
+        self.windows = []
+        marker = (
+            self.source.get("source_t0_us")
+            or self.source.get("t0_us")
+            or self.source.get("dataset", {}).get("t0_us", 10_000_000)
+        )
+        for center in (0, 60, 120):
+            end = marker + (center + 4) * 1_000_000
+            if self.cursor >= end:
+                w = self.processor.window(center, marker, self.cursor)
+                w["status"] = "VALID" if w["valid"] else "MISSING"
+            else:
+                w = {
+                    "id": f"window_{center}",
+                    "center_seconds": center,
+                    "start_us": marker + (center - 4) * 1_000_000,
+                    "end_us": end,
+                    "valid": False,
+                    "pulse_bpm": None,
+                    "reasons": ["NOT_READY"],
+                    "status": "COLLECTING" if self.cursor >= marker + (center - 4) * 1_000_000 else "WAITING",
+                }
+            w["center_s"] = center
+            self.windows.append(w)
 
     def rebuild(self, target):
         if target < self.cursor:
             self.processor = Processor(self.source["config_snapshot"])
             self.processed_index = 0
-        stop = min(len(self.samples), max(0, math.ceil((target - self.first) / 10000)))
+        stop = bisect_left(self.timestamps, target)
         while self.processed_index < stop:
             block = [
-                dict(s) for s in self.samples[self.processed_index : min(stop, self.processed_index + 1000)]
+                dict(s) for s in self.samples[self.processed_index : min(stop, self.processed_index + 1024)]
             ]
             self.processor.feed(block)
             self.processed_index += len(block)
         self.cursor = target
-        self.windows = []
-        if self.source["t0_us"] is not None:
-            for center in (0, 60, 120):
-                if self.cursor >= self.source["t0_us"] + (center + 4) * 1_000_000:
-                    w = self.processor.window(center, self.source["t0_us"], self.cursor)
-                    w["center_s"] = center
-                    w["status"] = "VALID" if w["valid"] else "MISSING"
-                    if center == 0 and self.source["t0_us"] < 6_000_000:
-                        w.update(
-                            valid=False, pulse_bpm=None, reasons=["INSUFFICIENT_HISTORY"], status="MISSING"
-                        )
-                    self.windows.append(w)
+        self._refresh_windows()
 
     def command(self, body):
         self.lease = time.monotonic()
         kind = body.get("type")
+        if "speed" in body:
+            speed = float(body["speed"])
+            if speed not in {0.5, 1, 2, 5, 10}:
+                raise DomainError("INVALID_PARAMETER", "播放速度应为0.5、1、2、5或10倍", 422)
+            self.speed = speed
         if kind == "play":
-            self.speed = float(body.get("speed", self.speed))
-            if self.speed not in {0.5, 1, 2, 5, 10}:
-                raise DomainError("INVALID_PARAMETER", "回放速度应为0.5、1、2、5或10倍", 422)
             self.playing = True
         elif kind == "pause":
             self.playing = False
         elif kind in {"seek", "step", "restart"}:
+            if kind == "step" and self.playing:
+                raise DomainError("INVALID_STATE", "请先暂停，再逐秒前进")
             self.playing = False
             target = (
                 self.first
@@ -85,7 +110,7 @@ class ReplayEngine:
         return self.snapshot()
 
     async def run(self):
-        prev = time.monotonic()
+        previous = time.monotonic()
         try:
             while not self.closed:
                 await asyncio.sleep(0.1)
@@ -94,16 +119,19 @@ class ReplayEngine:
                     self.closed = True
                     break
                 if self.playing:
-                    self.rebuild(min(self.end, self.cursor + round((now - prev) * self.speed * 100) * 10000))
+                    self.rebuild(min(self.end, self.cursor + round((now - previous) * self.speed * 1e6)))
                     if self.cursor >= self.end:
                         self.playing = False
-                prev = now
+                previous = now
         except asyncio.CancelledError:
             pass
 
     def snapshot(self):
         self.seq += 1
         snap = {k: v for k, v in self.source.items() if k not in {"waveform_tail", "events"}}
+        latest = self.processor.estimate(self.cursor)
+        latest["data_age_s"] = latest.get("data_age_seconds")
+        windows = copy.deepcopy(self.windows)
         snap.update(
             id=self.id,
             replay_id=self.id,
@@ -118,10 +146,12 @@ class ReplayEngine:
             last_us=self.end,
             playing=self.playing,
             speed=self.speed,
-            waveform_tail=self.samples[max(0, self.processed_index - 3000) : self.processed_index],
-            latest_result=self.processor.estimate(self.cursor),
-            derived_key_windows=self.windows,
-            derived_recovery=recovery_result(self.windows),
+            waveform_tail=self.processor.samples[-64 * 30 :],
+            latest_result=latest,
+            key_windows=windows,
+            derived_key_windows=windows,
+            recovery=recovery_result(windows),
+            derived_recovery=recovery_result(windows),
             closed=self.closed,
         )
         return snap

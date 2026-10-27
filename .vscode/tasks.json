@@ -88,12 +88,10 @@
     {
       "label": "Run QEMU",
       "type": "process",
-      "command": "make",
+      "command": "${userHome}/miniforge3/envs/repulse/bin/python",
       "args": [
-        "-C",
-        "firmware",
-        "TARGET=qemu",
-        "run"
+        "-m",
+        "scripts.run_qemu"
       ],
       "problemMatcher": [],
       "presentation": {
@@ -104,12 +102,11 @@
     {
       "label": "Debug QEMU Server",
       "type": "process",
-      "command": "make",
+      "command": "${userHome}/miniforge3/envs/repulse/bin/python",
       "args": [
-        "-C",
-        "firmware",
-        "TARGET=qemu",
-        "debug"
+        "-m",
+        "scripts.run_qemu",
+        "--gdb"
       ],
       "problemMatcher": [],
       "presentation": {
@@ -138,6 +135,16 @@
         "-m",
         "scripts.export_session",
         "${input:sessionId}"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Download Public Data",
+      "type": "process",
+      "command": "${userHome}/miniforge3/envs/repulse/bin/python",
+      "args": [
+        "-m",
+        "scripts.download_dataset"
       ],
       "problemMatcher": []
     }

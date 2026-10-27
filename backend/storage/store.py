@@ -250,6 +250,12 @@ class Store:
                     "on": r["on"] == "True",
                     "gap": r["gap"] == "True",
                     "fault": r.get("fault") or None,
+                    "source_time_us": int(r["source_time_us"]) if r.get("source_time_us") else None,
+                    "reference_bpm": float(r["reference_bpm"]) if r.get("reference_bpm") else None,
+                    **{
+                        key: float(r[key]) if r.get(key) else None
+                        for key in ("accel_x", "accel_y", "accel_z")
+                    },
                 }
                 for r in csv.DictReader(f)
             ]
@@ -259,7 +265,22 @@ class Store:
 
 
 class SessionWriter:
-    fields = ["time_us", "seq", "segment_id", "ppg", "filtered", "accel", "on", "gap", "fault"]
+    fields = [
+        "time_us",
+        "seq",
+        "segment_id",
+        "ppg",
+        "filtered",
+        "accel",
+        "on",
+        "gap",
+        "fault",
+        "source_time_us",
+        "reference_bpm",
+        "accel_x",
+        "accel_y",
+        "accel_z",
+    ]
 
     def __init__(self, store, sid):
         self.store, self.sid = store, sid
@@ -271,12 +292,15 @@ class SessionWriter:
         self.csv = csv.DictWriter(self.files["ppg.csv"], fieldnames=self.fields, extrasaction="ignore")
         self.csv.writeheader()
         self.accel = csv.writer(self.files["accel.csv"])
-        self.accel.writerow(["time_us", "accel"])
+        self.accel.writerow(["time_us", "dynamic_acceleration_g", "x_g", "y_g", "z_g"])
         self.closed = False
 
     def samples(self, samples):
         self.csv.writerows(samples)
-        self.accel.writerows((s["time_us"], s.get("accel")) for s in samples)
+        self.accel.writerows(
+            (s["time_us"], s.get("accel"), s.get("accel_x"), s.get("accel_y"), s.get("accel_z"))
+            for s in samples
+        )
 
     def event(self, event):
         self.files["events.jsonl"].write(json_text(event) + "\n")

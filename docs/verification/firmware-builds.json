@@ -1,15 +1,34 @@
 {
-  "qemu_version": "11.0.1",
-  "gcc_version": "Arm GNU Toolchain14.3.Rel1 GCC14.3.1 20250623",
-  "freertos_version": "V11.2.0",
-  "builds": {
-    "qemu": {
-      "elf_sha256": "b359cd98d0356cfc754bc99203d891e6d0d43768e064c57e162e7b017727bf7b",
-      "scope": "latest UART polling transport smoke tested; same DSP/source/state implementation as full-cycle verification"
+  "date": "2026-10-27",
+  "protocol_version": 2,
+  "data_source": "PUBLIC_DATA",
+  "sample_hz": 64,
+  "compiler": "arm-none-eabi-gcc (Arm GNU Toolchain 14.3.Rel1 (Build arm-14.174)) 14.3.1 20250623",
+  "qemu": "11.0.1",
+  "kernel": "FreeRTOS V11.2.0",
+  "targets": [
+    {
+      "target": "qemu",
+      "elf": "firmware/build/qemu/repulse.elf",
+      "sha256": "a4194e2a999afd5396c0e69b239077dfcd3cbef261bb27b4619336eab4f882dc",
+      "text_bytes": 19413,
+      "data_bytes": 116,
+      "bss_bytes": 49156,
+      "build": "PASS",
+      "runtime_verified": true
     },
-    "stm32": {
-      "elf_sha256": "a5094eb38e6e0d6cb7f23044cf715929356d1b61579162ad5c95e99e871f7a4f",
-      "scope": "latest UART polling transport smoke tested; same DSP/source/state implementation as full-cycle verification"
+    {
+      "target": "stm32",
+      "elf": "firmware/build/stm32/repulse.elf",
+      "sha256": "42c295c97267fcc1e4eb16acc7a905d7886ea496dece4725d5a94f78ea98e0c6",
+      "text_bytes": 16509,
+      "data_bytes": 100,
+      "bss_bytes": 49148,
+      "build": "PASS",
+      "runtime_verified": false
     }
-  }
+  ],
+  "runtime_evidence": "docs/verification/qemu-real-data.json",
+  "tests_evidence": "docs/verification/firmware-tests.xml",
+  "hardware_note": "STM32仅交叉编译，真实传感器和板级功能未验证。"
 }
