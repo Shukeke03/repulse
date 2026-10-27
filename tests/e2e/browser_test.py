@@ -116,6 +116,18 @@ def test_eight_routes_and_mobile_readability(app_url, browser_page):
 
 def test_public_data_complete_export_and_independent_replay(app_url, browser_page):
     page = browser_page
+    # 保留真实回放连接句柄，测试断开后的提示和自动重连。
+    page.add_init_script(
+        """(() => {
+          const NativeWebSocket = window.WebSocket;
+          window.WebSocket = class extends NativeWebSocket {
+            constructor(url, protocols) {
+              super(url, ...(protocols === undefined ? [] : [protocols]));
+              if (String(url).includes('/api/replays/')) window.__replaySocket = this;
+            }
+          };
+        })();"""
+    )
     start_demo(page, app_url, "真实记录浏览器验收")
     page.wait_for_function("document.querySelector('#session-controls')?.dataset.phase === 'RECOVERING'")
     t0 = page.request.get(app_url + "/api/bootstrap").json()["active_session"]["t0_us"]
@@ -146,6 +158,12 @@ def test_public_data_complete_export_and_independent_replay(app_url, browser_pag
         assert download.value.suggested_filename.endswith(suffix)
     page.locator("#detail-replay").click()
     page.locator("#replay-play").wait_for()
+    page.wait_for_function("window.__replaySocket?.readyState === WebSocket.OPEN")
+    assert page.locator("#replay-disconnected").is_hidden()
+    page.evaluate("window.__replaySocket.close()")
+    page.locator("#replay-disconnected").wait_for(state="visible")
+    page.wait_for_function("window.__replaySocket?.readyState === WebSocket.OPEN")
+    page.locator("#replay-disconnected").wait_for(state="hidden")
     assert page.locator("#replay-state").inner_text() == "已暂停"
     assert page.locator("#replay-windows .badge").all_inner_texts() == ["尚未到达"] * 3
     page.locator("#replay-step").click()

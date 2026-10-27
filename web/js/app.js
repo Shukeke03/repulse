@@ -488,7 +488,7 @@ async function replay(recordId,token) {
   render(created);
   const stopSocket=socket(`/replays/${replayId}/live`,render,connected=>{
     replayConnected=connected;
-    document.querySelector('#replay-disconnected')?.classList.toggle('hidden',!connected);
+    document.querySelector('#replay-disconnected')?.classList.toggle('hidden',connected);
     if(isCurrent(token))render(snapshot);
   });
   state.cleanups.push(stopSocket,()=>api(`/replays/${replayId}/commands`,{method:'POST',body:{type:'close'}}).catch(()=>{}));

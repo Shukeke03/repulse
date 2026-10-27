@@ -14,3 +14,7 @@ firmware/**/build/
 venv/
 *.egg-info/
 tests/e2e/artifacts/
+
+# 内部设计文档仅保留在本机。
+docs/SYSTEM_DESIGN.md
+docs/ALGORITHM_CONTRACT.md

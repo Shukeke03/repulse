@@ -4,7 +4,11 @@
 
 目录和文件用途见 [项目文件与目录说明](docs/PROJECT_STRUCTURE.md)。
 
-![真实记录处理界面](docs/screenshots/02-monitor.png)
+## 功能演示
+
+[打开或下载演示视频（约42秒）](docs/demo/repulse-demo.mp4)
+
+视频展示真实记录的运动恢复过程、结果回放、数据来源和策略比较。演示使用10倍播放，原始记录时间不变。
 
 ## 数据来源
 
@@ -32,7 +36,7 @@ python -m scripts.download_dataset
 python run.py
 ```
 
-仓库为私有时，克隆需要有访问权限的GitHub账号。已有环境和数据时只需：
+已有环境和数据时只需：
 
 ```sh
 cd repulse

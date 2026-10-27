@@ -210,13 +210,15 @@ tests/
 ```text
 docs/
 ├── PROJECT_STRUCTURE.md         本文件：目录、文件职责和阅读顺序
-├── SYSTEM_DESIGN.md             当前系统结构、处理链路和模块职责
-├── ALGORITHM_CONTRACT.md        采样单位、固定窗口、质量规则和结果含义
+├── SYSTEM_DESIGN.md             本机内部文档：系统结构、处理链路和模块职责
+├── ALGORITHM_CONTRACT.md        本机内部文档：采样单位、固定窗口和质量规则
 ├── DATASET.md                   真实数据来源、许可、事件依据和处理方法
 ├── FIRMWARE.md                  FreeRTOS任务、通信协议、构建、运行与调试
 ├── VERIFICATION.md              已执行测试、结果证据及尚未验证的范围
 ├── dataset-protocol-aerobic-v1.png 作者协议图，用于核对原记录阶段事件
 ├── dataset-protocol-provenance.json 协议图的来源、Notebook与附件哈希
+├── demo/
+│   └── repulse-demo.mp4         真实系统主要功能的录屏演示，约42秒
 ├── screenshots/                当前真实数据版本的运行截图
 │   ├── 01-workbench.png         工作台
 │   ├── 02-monitor.png           恢复过程
@@ -239,6 +241,8 @@ docs/
     ├── qemu-real-data.json      真实QEMU完整片段、CRC、任务与离线对照结果
     └── real-comparison.json     真实片段的三策略、四相位比较结果
 ```
+
+`SYSTEM_DESIGN.md`与`ALGORITHM_CONTRACT.md`仅保存在本机，不包含在GitHub仓库或新克隆中。数据来源、安装、固件运行和验证说明继续随仓库提供。
 
 ## 本地数据与运行产物 data/
 
