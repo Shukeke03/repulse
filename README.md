@@ -1,33 +1,37 @@
 # RePulse 复脉
 
-运动恢复监护课程项目。系统读取下载到本地的公开人体记录，显示脉搏波、运动变化和信号质量，计算恢复起点、60秒和120秒附近的窗口脉率及变化量。
+RePulse 是一个运动恢复监护课程项目。系统读取公开的穿戴设备历史记录，处理脉搏波和加速度数据，展示恢复过程，并计算固定时间窗口内的脉率。浏览器界面由 FastAPI 提供；项目同时支持主机端信号处理和基于 QEMU 的 FreeRTOS 固件仿真。
 
-目录和文件用途见 [项目文件与目录说明](docs/PROJECT_STRUCTURE.md)。
-
-## 功能演示
+## 演示
 
 https://github.com/user-attachments/assets/462c99d1-ae6f-4af0-a102-d0aa058504e8
 
-[打开或下载演示视频（约42秒）](docs/demo/repulse-demo.mp4)
+[下载演示视频（约 42 秒）](docs/demo/repulse-demo.mp4)。视频使用 10 倍播放速度，原始采样时间和计算窗口不变。
 
-视频展示真实记录的运动恢复过程、结果回放、数据来源和策略比较。演示使用10倍播放，原始记录时间不变。
+## 功能
+
+- 读取本地公开记录，展示脉搏波、运动变化和信号质量。
+- 按原始事件标记定位恢复起点，计算起点、60 秒和 120 秒的窗口脉率。
+- 保存、检索、回放和导出处理记录；回放支持暂停、定位和逐秒推进。
+- 对同一片段比较连续读取、周期读取和关键窗口优先三种策略。
+- 在 QEMU 中运行 FreeRTOS 固件，查看任务与处理结果。
+
+策略比较通过屏蔽离线记录中的部分样本模拟不同读取时段，不控制实际传感器；能耗指标由工程模型估算。连续读取默认记录 S02 时，起点窗口未通过质量检查，因此两项脉率变化量显示缺测；60 秒和 120 秒窗口可用。当前项目不连接实时传感器，也未进行临床准确度验证。
 
 ## 数据来源
 
-使用 PhysioNet 的 [Wearable Device Dataset from Induced Stress and Structured Exercise Sessions v1.0.1](https://physionet.org/content/wearable-device-dataset/1.0.1/)。原始文件放在项目内 `data/public/`，下载后可离线使用。系统没有合成波形或随机数据入口。
+数据来自 PhysioNet 的 [Wearable Device Dataset from Induced Stress and Structured Exercise Sessions v1.0.1](https://physionet.org/content/wearable-device-dataset/1.0.1/)。下载脚本默认获取三条有氧骑行记录，原始 CSV 合计约 6.1 MB，保存在项目的 `data/public/` 下。
 
-- BVP脉搏波：原始64 Hz，保留设备相对单位与正负波形值。
-- 三轴加速度：原始32 Hz。按文件单位换算为g，再提取运动变化量。
-- `tags.csv`：与同次记录同步的阶段标记。恢复起点由作者协议核对后固定，播放操作不改变起点。
-- `HR.csv`：设备从同一BVP计算的脉率，用作设备输出参考，不是独立心电金标准。
+- `BVP.csv`：64 Hz 脉搏波，保留设备相对单位和正负值。
+- `ACC.csv`：32 Hz 三轴加速度；程序换算为 g 并计算动态运动量。
+- `tags.csv`：原始阶段标记，用于确定恢复起点。该起点对应低阻力踩踏的主动恢复阶段。
+- `HR.csv`：设备从同一 BVP 计算的脉率，仅作显示对照，不作为独立心电参考。
 
-演示从恢复起点前10秒开始，持续到起点后124秒，共134秒。恢复阶段是低阻力踩踏的主动恢复，不是完全静止后的恢复。信号不能支持估计时显示缺测与原因。
-
-数据文件、版本、SHA256、阶段图和许可见 [DATASET.md](docs/DATASET.md)。原始数据不提交到GitHub，可通过下载脚本复现。
+每次处理截取起点前 10 秒至起点后 124 秒，共 134 秒。数据许可、事件映射和文件校验信息见 [数据说明](docs/DATASET.md)。原始数据不提交到仓库。
 
 ## 安装与启动
 
-需要 Git、[Miniforge](https://github.com/conda-forge/miniforge)。已在macOS Apple Silicon验证；使用POSIX文件锁，原生Windows请使用WSL2。
+需要 Git 和 [Miniforge](https://github.com/conda-forge/miniforge)。项目已在 macOS Apple Silicon 上验证。应用使用 POSIX 文件锁，不支持原生 Windows；可尝试在 WSL2 中运行，但尚未验证。
 
 ```sh
 git clone https://github.com/Shukeke03/repulse.git
@@ -38,107 +42,83 @@ python -m scripts.download_dataset
 python run.py
 ```
 
-已有环境和数据时只需：
-
-```sh
-cd repulse
-conda activate repulse
-python run.py
-```
-
-同一个FastAPI服务提供前端静态文件和后端API，无需启动第二个前端服务或运行npm构建。
+已有环境和数据时，激活环境后在项目根目录执行 `python run.py`。服务默认绑定 `127.0.0.1:8765`，按 `Ctrl+C` 停止；可通过 `python run.py --port 8766` 修改端口。同一数据目录只允许一个服务进程使用。
 
 | 地址 | 内容 |
 | --- | --- |
-| [http://127.0.0.1:8765](http://127.0.0.1:8765) | 系统界面 |
-| [http://127.0.0.1:8765/docs](http://127.0.0.1:8765/docs) | 后端接口文档 |
-| [http://127.0.0.1:8765/api/datasets](http://127.0.0.1:8765/api/datasets) | 本地记录目录及来源信息 |
+| [http://127.0.0.1:8765](http://127.0.0.1:8765) | Web 界面 |
+| [http://127.0.0.1:8765/docs](http://127.0.0.1:8765/docs) | API 文档 |
+| [http://127.0.0.1:8765/api/datasets](http://127.0.0.1:8765/api/datasets) | 已下载的数据记录 |
 
-服务监听本机，采用单进程、单worker。停止时按Ctrl+C。`python run.py --port 8766`可更改端口；同一数据目录不能同时运行两个实例。
+前端由同一个 FastAPI 服务提供，无需另启前端服务或执行 npm 构建。
 
-## 使用流程
+## 处理路径
 
-1. 在工作台选择公开记录、采集策略和处理方式，点击“开始演示”。
-2. 前10秒读取恢复起点前的历史。到达原记录标记时自动进入恢复段，无需手动标记。
-3. 查看波形、算法脉率、信号质量与三个固定窗口。冻结只固定当前图表，后台继续处理。
-4. 完成后在记录库查看结果、备注、回放或导出。部分窗口缺测不等于运行失败。
-5. 策略比较对同一片段使用连续、周期和关键窗口优先三种读取策略，以连续采集结果作工程对照。
+工作台的“处理环境”对应两条执行路径。FastAPI、数据读取和结果存储均在主机端运行。
 
-所有速度选项只改变播放推进速度，不修改原始采样时间和窗口长度。旧版本的合成演示记录不进入当前公开记录列表，原始文件不会被重写成真实数据。
+| 工作台选项 | 信号处理位置 | 说明 |
+| --- | --- | --- |
+| Python · 本机处理 | 主机端 Python 进程 | `SessionEngine` 调用 `Processor`，完成脉搏波滤波、质量判定和窗口计算。 |
+| FreeRTOS / QEMU | QEMU 模拟的 Cortex-M3 中 | 主机预先写入观测文件，固件任务执行采集策略、脉搏波处理和窗口计算；主机读取结果并归档。 |
 
-## 页面
+两条路径共用主机端的加速度单位换算和动态运动量计算，32 Hz 结果以前值保持方式对齐到 64 Hz 脉搏波。QEMU 使用带版本和 CRC 的 semihosting 文件通道传递观测与处理结果；UART 用于控制和诊断。固件仿真结果不代表 STM32 实机性能。
 
-| 页面 | 用途 |
-| --- | --- |
-| 工作台 | 选择记录和处理方式，开始或返回当前演示 |
-| 恢复过程 | 按记录时间推进波形、质量、阶段、关键窗口与腕端屏 |
-| 记录库 | 查询处理结果、备注、导出及清理记录 |
-| 记录回放 | 独立播放、暂停、定位、逐秒和重新计算 |
-| 策略比较 | 相同真实输入的窗口覆盖、结果差异和开启时长比较 |
-| 数据与片段 | 查看原始文件、阶段、时间范围、来源与校验信息 |
-| 系统状态 | 查看服务、存储、时钟和实际FreeRTOS任务状态 |
-| 设置 | 图表、显示频率、腕端亮屏和默认策略 |
+### 运行 FreeRTOS 固件
 
-## Python与FreeRTOS
-
-Python模式由电脑端完成数据读取和流式DSP。两种方式共用Python的加速度单位换算、1秒因果重力估计、动态运动量计算及32→64 Hz前值保持。QEMU模式由真实FreeRTOS任务完成PPG滤波、峰检测、质量判定和窗口计算，Python负责文件传输、归档和界面推送。
-
-QEMU通过受控的本地二进制观测文件读取真实数据，并输出固件处理后的波形；输入与输出包含版本、序号、时间和校验信息。它不是STM32外设模拟器，诊断数据也不代表STM32实机性能。固件内不再生成脉搏波。
-
-使用QEMU需要 `make`、`qemu-system-arm` 和 `arm-none-eabi` 工具链。本机工具链位于Miniforge环境内，QEMU通过Homebrew安装。其他机器请从 [QEMU](https://www.qemu.org/download/) 与 [Arm GNU工具链](https://developer.arm.com/Tools%20and%20Software/GNU%20Toolchain) 官方来源安装，并加入PATH。
+需要已下载的记录、`make`、`qemu-system-arm` 和 Arm GNU 工具链（`arm-none-eabi-*`）。本机验证使用 Miniforge 中的工具链与 Homebrew 安装的 QEMU；其他环境可参考 [QEMU 下载页](https://www.qemu.org/download/)和 [Arm GNU 工具链](https://developer.arm.com/Tools%20and%20Software/GNU%20Toolchain)。
 
 ```sh
 make -C firmware TARGET=qemu
-make -C firmware TARGET=stm32
 python run.py
 ```
 
-构建完成后可在工作台选择FreeRTOS。终端独立验证使用真实文件输入的辅助脚本：
+构建后，在工作台选择 **FreeRTOS / QEMU**。也可在终端单独运行：
 
 ```sh
 python -m scripts.run_qemu --speed 10
 python -m scripts.run_qemu --gdb
 ```
 
-STM32目标完成交叉编译，真实传感器、显示与按键尚未上板验证，设备入口保持不可用。协议和构建说明见 [FIRMWARE.md](docs/FIRMWARE.md)，第三方内核源码保留MIT许可证和上游版本记录。
+`make -C firmware TARGET=stm32` 可交叉编译 STM32 目标。传感器、显示和按键尚未上板验证，设备入口保持不可用。完整构建和调试说明见 [固件说明](docs/FIRMWARE.md)。
 
 ## 测试
 
-下载数据后执行：
+先下载公开记录，再从项目根目录运行：
 
 ```sh
 python -m pytest tests/unit tests/api
 export PLAYWRIGHT_BROWSERS_PATH="$(python -c 'import sys; print(sys.prefix)')/share/playwright-browsers"
 python -m playwright install chromium
 python -m pytest tests/e2e/browser_test.py
-python -m scripts.quick_compare
-python scripts/verify_qemu.py
 ruff check backend tests scripts
 ```
 
-测试使用独立数据目录。没有本地公开记录或QEMU工具时，相应测试会明确提示跳过，不在测试过程中联网下载数据。最新实际结果见 [VERIFICATION.md](docs/VERIFICATION.md)。
+浏览器测试要求本地数据可用。部分单元及接口测试在数据缺失时会跳过；QEMU 相关测试在固件或 QEMU 不可用时会跳过。测试使用独立运行目录，不会修改原始 CSV。
 
-## VS Code
+策略比较结果写入 `data/comparisons/cli-<dataset_id>/`；对同一记录再次运行会覆盖该目录中的 `results.json` 和 `metrics.csv`。QEMU 验证可指定输出路径，避免覆盖仓库中的历史报告：
 
-打开 `repulse.code-workspace`，选择 `repulse` 的Python解释器。右上角运行按钮或F5可启动；任务菜单提供数据下载、测试、策略比较、QEMU构建和运行。
-
-配置默认按 `~/miniforge3/envs/repulse` 查找环境。使用其他安装位置时，修改 `.vscode/settings.json`、`tasks.json` 和 `launch.json` 中相应路径。若提示无法解析 `uvicorn`，执行 `Python: Select Interpreter` 并选择已安装项目依赖的 `repulse` 环境。
-
-## 文件与清理
-
-```text
-backend/          API、数据源、流式处理、回放、比较与持久化
-web/              原生HTML/CSS/JavaScript与Canvas图表
-firmware/         FreeRTOS任务、C DSP、数据输入和独立板级目标
-scripts/          数据下载、导出、策略比较与固件验证
-tests/            单元、接口、真实浏览器与固件测试
-docs/             数据来源、协议、设计、截图和验证证据
-data/public/      下载的公开原始记录、来源与校验信息
-data/sessions/    本次处理的波形、结果、事件和manifest
-data/transports/  QEMU运行期间使用的受控观测文件
-data/exports/     导出文件
+```sh
+python -m scripts.quick_compare
+mkdir -p data/verification
+python -m scripts.verify_qemu --output data/verification/qemu-real-data.json
 ```
 
-默认所有数据均放在项目内，停止服务后可一起备份或清理。网页删除处理记录不删除下载的原始公开数据。SQLite索引与记录文件应整体备份；`REPULSE_DATA_DIR`可指定运行记录目录，`REPULSE_DATASETS_DIR`可指定公开数据根目录。
+测试范围与既有结果见 [验证记录](docs/VERIFICATION.md)。
 
-Linux服务器也可运行后端与数据，通过 `ssh -L 8765:127.0.0.1:8765 legion` 在Mac访问。当前展示规模无需GPU或模型训练。
+## 开发与目录
+
+VS Code 可打开 `repulse.code-workspace`，选择 `repulse` 环境的 Python 解释器。F5 启动调试；任务菜单提供数据下载、测试和固件构建。项目配置默认环境路径为 `~/miniforge3/envs/repulse`，安装位置不同时需调整 `.vscode/` 中的相应配置。
+
+| 路径 | 内容 |
+| --- | --- |
+| `backend/` | API、数据源、信号处理、执行器与存储 |
+| `web/` | HTML、CSS、JavaScript 和 Canvas 图表 |
+| `firmware/` | FreeRTOS 固件、板级适配与内核源码 |
+| `scripts/` | 数据下载、策略比较、导出和验证脚本 |
+| `tests/` | 单元、接口和浏览器测试 |
+| `docs/` | 数据来源、固件、文件结构和验证说明 |
+| `data/` | 本地公开数据、处理记录、临时传输文件与导出文件 |
+
+目录和文件的详细职责见 [项目结构](docs/PROJECT_STRUCTURE.md)。`REPULSE_DATA_DIR` 可指定运行记录目录，`REPULSE_DATASETS_DIR` 可指定公开数据根目录。备份运行记录时，应同时保留 SQLite 索引与记录文件。
+
+如需通过 SSH 访问远程主机上的本地服务，可执行 `ssh -L 8765:127.0.0.1:8765 user@server`，将 `user@server` 替换为实际用户名和主机地址，再访问本机 `127.0.0.1:8765`。

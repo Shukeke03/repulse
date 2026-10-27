@@ -1,22 +1,22 @@
-# 真实数据版本验证记录
+# 验证记录
 
-版本：0.2.0；日期：2026年10月27日；平台：macOS Apple Silicon，Miniforge Python 3.12。
+以下结果记录于 2026 年 10 月 27 日，项目版本 0.2.0，验证平台为 macOS Apple Silicon、Miniforge Python 3.12。测试报告记录当次运行结果；后续修改应重新执行相应测试。
 
-## 已执行结果
+## 测试与构建
 
-| 验证 | 本次实际结果 | 证据 |
+| 验证 | 当次结果 | 证据 |
 | --- | --- | --- |
-| 单元、接口、固件与浏览器合并测试 | **72 passed**，110.85秒；0失败、0错误、0跳过 | [all-tests.xml](verification/all-tests.xml) |
-| 原始数据与算法 | 官方SHA256、逐点BVP、原始时间戳、XYZ加速度、64 Hz时间轴、真实阶段事件、HR不参与估计、流式分块一致、质量与缺口传播 | `tests/unit/test_public_data.py`、`test_signal.py`、`test_policies.py` |
-| 会话与回放 | 自动固定10秒起点、完整134秒处理、512样本窗口、关闭采集使当前值失效、重算不读取未来结果、不修改原记录 | `tests/unit/test_engine_contract.py`、`tests/api/test_app.py` |
-| 接口与存储 | 持久幂等命令、重启中断、目录移动恢复、批量删除保护、原始CSV下载校验、JSON/CSV/ZIP导出、设置与比较取消 | `tests/api/test_app.py` |
-| Chromium浏览器 | 4项通过；8页、360px布局、Python完整流程、FreeRTOS完整流程、六任务、冻结与切页、弹窗键盘、记录删除、备注、回放与导出 | `tests/e2e/browser_test.py` |
-| 真实FreeRTOS | 13项通过；版本/CRC、固定设置、内核六任务、开始与取消、三种策略完整运行、同观测C/Python结果对照 | [firmware-tests.xml](verification/firmware-tests.xml) |
-| 快速策略比较 | S02，4个相位×3种策略，12次运行、4组配对、0组排除；同组输入哈希一致 | [real-comparison.json](verification/real-comparison.json) |
-| 静态检查 | Ruff检查通过，30个Python文件格式检查通过；前端JavaScript语法检查通过 | `ruff check backend tests scripts`、`ruff format --check backend tests scripts` |
-| 固件构建 | QEMU Cortex-M3与STM32L476RG两个目标编译通过；当前ELF哈希已记录 | [firmware-builds.json](verification/firmware-builds.json) |
+| 单元、接口、固件与浏览器合并测试 | **72 passed**，110.85 秒；0 失败、0 错误、0 跳过 | [all-tests.xml](verification/all-tests.xml) |
+| 数据与算法 | 校验原始文件哈希、逐点 BVP、时间戳与 XYZ 加速度；检查固定起点、分块滤波、缺口和预热传播 | `tests/unit/test_public_data.py`、`test_signal.py`、`test_policies.py` |
+| 会话与回放 | 检查 10 秒起点、134 秒处理时长、512 样本窗口、采集关闭、回放游标和原记录完整性 | `tests/unit/test_engine_contract.py`、`tests/api/test_app.py` |
+| 接口与存储 | 检查幂等请求、重启恢复、删除保护、原始 CSV 下载校验、导出、设置与比较取消 | `tests/api/test_app.py` |
+| Chromium | 4 项通过，覆盖 8 页、360 px 布局、两种执行路径的完整流程、回放、备注和导出 | `tests/e2e/browser_test.py` |
+| 固件专项 | 13 项通过，覆盖输入协议、CRC、任务状态、取消、三策略及 C/Python 结果对照 | [firmware-tests.xml](verification/firmware-tests.xml) |
+| 策略比较 | S02，4 个相位 × 3 种策略，12 次运行；4 组配对，0 组排除 | [real-comparison.json](verification/real-comparison.json) |
+| 静态检查 | Ruff 检查和 30 个 Python 文件的格式检查通过；JavaScript 语法检查通过 | `ruff check backend tests scripts`、`ruff format --check backend tests scripts` |
+| 固件构建 | QEMU Cortex-M3 和 STM32L476RG 目标编译通过，记录了当次 ELF 哈希 | [firmware-builds.json](verification/firmware-builds.json) |
 
-合并复现命令（先下载数据、构建QEMU固件并安装Chromium）：
+复现合并测试时，将报告写入本地数据目录，避免覆盖已记录的历史结果：
 
 ```sh
 conda activate repulse
@@ -24,45 +24,48 @@ python -m scripts.download_dataset
 make -C firmware TARGET=qemu
 export PLAYWRIGHT_BROWSERS_PATH="$(python -c 'import sys; print(sys.prefix)')/share/playwright-browsers"
 python -m playwright install chromium
-python -m pytest tests/unit tests/api tests/e2e/browser_test.py --junitxml=docs/verification/all-tests.xml
+mkdir -p data/verification
+python -m pytest tests/unit tests/api tests/e2e/browser_test.py --junitxml=data/verification/all-tests.xml
 ```
 
-测试状态与运行记录使用隔离目录，不改写本地原始公开CSV。缺少公开数据或QEMU工具时，相应测试会明确跳过；上表本机执行没有跳过项。
+测试使用隔离的运行目录，不改写原始 CSV。浏览器测试需要本地公开数据，缺失时会失败；部分 QEMU 测试在工具或固件不可用时会跳过。上表所记录的运行没有跳过项。
 
-## 完整真实片段
+## S02 完整片段
 
-[QEMU完整流程证据](verification/qemu-real-data.json)对应S02公开有氧骑行记录：准备10秒、主动恢复124秒，共8576个64 Hz样本。10倍播放本次主机耗时17.436秒；输入和输出CRC通过，原始队列和遥测丢块均为0。该耗时受主机调度影响，不代表STM32实机性能。
+[QEMU 运行记录](verification/qemu-real-data.json)使用 S02 有氧骑行数据：起点前 10 秒和主动恢复 124 秒，共 8576 个 64 Hz 样本。播放倍率为 10 倍，当次主机耗时 17.436 秒。输入和输出的样本数及 CRC 校验通过；主机耗时受调度影响，不代表 STM32 实机性能。
 
-| 固定窗口 | FreeRTOS在线结果 | 独立Python重算 | 判定 |
+| 固定窗口 | FreeRTOS 固件结果 | Python 离线重算 | 判定 |
 | --- | --- | --- | --- |
-| 起点 | 缺测 | 缺测 | 间期与波形干扰，均拒绝估计 |
-| 60秒 | 142.222 BPM | 142.22 BPM | 有效 |
-| 120秒 | 130.169 BPM | 130.17 BPM | 有效 |
+| 起点 | 缺测 | 缺测 | 峰间期和波形周期一致性未通过检查 |
+| 60 秒 | 142.222 BPM | 142.22 BPM | 有效 |
+| 120 秒 | 130.169 BPM | 130.17 BPM | 有效 |
 
-这组有效脉率差均小于0.01 BPM。固件使用float32，Python使用浮点科学计算；本次一致性证据不代表所有输入逐位相同。C质量检查遇到失败可提前返回，Python可记录多个原因，因此原因列表不保证逐项相同。起点缺测使ΔPR60、ΔPR120保持null。
+两个有效结果的差值均小于 0.01 BPM。固件使用 float32，Python 使用浮点数值计算；两实现的质量检查可能返回不同数量的原因码。由于起点缺测，`ΔPR60` 和 `ΔPR120` 均为 `null`。
 
-QEMU读取同一真实BVP和运动量，在采集策略之后由C完成PPG处理与窗口计算。Python仅在验证脚本中独立重算作对照，没有将重算值代替固件输出。设备HR来自同一BVP，不是独立ECG参考。
+主机为两种执行路径提供加速度预处理。QEMU 固件按策略处理 BVP 并输出窗口结果；验证脚本在固件处理结束后，用相同观测由 Python 离线重算窗口以比较实现一致性。设备 HR 由同一 BVP 计算，不是独立心电参考。
 
-## 策略比较的解释范围
+当次报告中的 `raw_drops` 为 0；该字段统计 `qRaw` 和 `qEvents` 的发送失败。`telemetry_drops` 在固件中固定为 0，并非实测遥测丢失计数。样本完整性主要通过序号、条数和 CRC 校验。
 
-快速比较使用S02的相位0、5、10、15秒。连续采集恢复段开启124秒，关键窗口优先策略开启70秒，周期策略平均开启约70.023秒；周期策略的最大预算量化差为0.0625秒，低于7/64秒的离散容差。
+## 策略比较
 
-本次关键窗口优先策略保留了连续策略的60秒和120秒估计；周期策略在这4个相位没有得到完整可用的关键窗口。起点窗口在所有策略中均缺测。比较只说明这条真实记录及这些相位的工程行为，不能推广为人群效果。
+当次快速比较使用 S02 的相位 0、5、10、15 秒。恢复段内连续读取 124 秒，关键窗口优先策略读取 70 秒，周期策略平均读取约 70.023 秒；周期策略的最大预算量化差为 0.0625 秒，小于 7/64 秒的离散容差。
 
-误差列以相同片段的连续采集算法结果为工程对照；无可比窗口时为null，并保留可比次数。能耗是声明参数下的工程估算，未测量E4或STM32功耗。
+关键窗口优先策略保留了连续读取的 60 秒和 120 秒估计；周期策略在这 4 个相位均未得到完整可用的关键窗口。所有策略的起点窗口均缺测。这些结果仅适用于该记录及相位设置。
 
-## 验证边界
+差异指标以同一片段的连续读取结果为对照，无可比窗口时为 `null`，并记录可比次数。能耗值来自固定参数的工程模型，未测量 E4 或 STM32 功耗。
 
-- 原始记录是公开人体实测；当前算法与工程质量门限尚无独立ECG准确度验证或临床阈值标定。
-- 本次只下载三条有氧记录，原始CSV共6,116,010字节；包括来源、许可与清单的公开数据目录共6,386,413字节。
-- STM32目标只完成交叉编译。传感器I2C/FIFO、显示、按键、佩戴和电气性能尚未上板验证，设备入口保持不可用。
-- 尚未穷举网络中断、磁盘满、异常断电、存储损坏与长时间负载组合。回放从首样本重建，未实现检查点加速。
-- 本次浏览器检查覆盖主要交互与窄屏布局，未完成独立无障碍认证。
+## 验证范围
+
+- 原始文件来自公开人体采集。当前算法和质量阈值尚未进行独立心电准确度验证或临床标定。
+- 当次下载的三条有氧记录的 CSV 共 6,116,010 字节；`data/public/` 当时的总快照为 6,386,413 字节，包含元数据、清单和诊断产物，并非单指版本目录。
+- STM32 目标仅交叉编译；传感器 I2C/FIFO、显示、按键、接线、佩戴和电气性能尚未上板验证。
+- 网络中断、磁盘满、异常断电、存储损坏和长期负载组合未穷举。回放从首样本重建，未实现检查点加速。
+- 当次浏览器检查覆盖主要交互和窄屏布局，未进行独立无障碍认证。
 
 ## 界面截图
 
 - [工作台](screenshots/01-workbench.png)
 - [恢复过程](screenshots/02-monitor.png)
 - [数据与片段](screenshots/03-real-data.png)
-- [360px工作台](screenshots/09-mobile.png)
-- [360px恢复过程](screenshots/10-mobile-monitor.png)
+- [360 px 工作台](screenshots/09-mobile.png)
+- [360 px 恢复过程](screenshots/10-mobile-monitor.png)

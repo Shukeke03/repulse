@@ -1,17 +1,15 @@
-# 公开运动恢复记录
+# 数据集说明
 
-RePulse运行时只读取本地公开记录。原始BVP和运动量不会由程序生成；未下载记录、文件缺失或SHA256不符时，系统明确报错。
+RePulse 从本地文件读取公开运动记录。数据未下载、文件缺失或校验失败时，数据源不可用。
 
-## 来源和本地位置
+## 来源与文件
 
-数据来自 Hongn 等人的 **Wearable Device Dataset from Induced Stress and Structured Exercise Sessions，v1.0.1**。
-
-- [PhysioNet官方说明](https://physionet.org/content/wearable-device-dataset/1.0.1/)
+- 数据集：[Wearable Device Dataset from Induced Stress and Structured Exercise Sessions，v1.0.1](https://physionet.org/content/wearable-device-dataset/1.0.1/)，Hongn 等。
 - DOI：[10.13026/he0v-tf17](https://doi.org/10.13026/he0v-tf17)
-- 原始研究：[Wearable Physiological Signals under Acute Stress and Exercise Conditions](https://www.nature.com/articles/s41597-025-04845-9)
-- 许可证：Open Data Commons Attribution License v1.0；原始LICENSE随小样本下载并保留。
+- 论文：[Wearable Physiological Signals under Acute Stress and Exercise Conditions](https://www.nature.com/articles/s41597-025-04845-9)
+- 许可：Open Data Commons Attribution License v1.0，原始 `LICENSE.txt` 随数据保存。
 
-本次只保留有氧骑行S01、S02和S04三条记录的BVP、ACC、HR、tags四类CSV，原始文件合计约6.1 MB。记录位置为：
+项目使用有氧骑行 S01、S02、S04 的 BVP、ACC、HR 和 tags 文件，CSV 合计约 6.1 MB：
 
 ```text
 data/public/wearable-device-dataset/1.0.1/
@@ -22,52 +20,55 @@ data/public/wearable-device-dataset/1.0.1/
   manifest.json
 ```
 
-`data/`已被Git忽略，删除项目目录即可一并清理本地数据。首次部署在项目根目录执行：
+首次下载：
 
 ```sh
 conda activate repulse
 python -m scripts.download_dataset
 ```
 
-下载脚本优先使用数据提供方公开的PhysioNet S3镜像，失败后尝试PhysioNet原始链接。每个原始CSV均与官方SHA256SUMS核对；源代码包含本次固定版本的校验值，后续运行不会在线请求或自动替换数据。也可用`--subjects S02`只下载默认记录。
+脚本优先从 PhysioNet S3 镜像下载，失败后使用 PhysioNet 原始地址。CSV 按代码中固定的 SHA-256 校验值验证；校验值对应数据集的官方 `SHA256SUMS.txt`。运行时读取已下载的文件，不自动更新数据。只下载默认记录可使用 `python -m scripts.download_dataset --subjects S02`。
 
-## 阶段起点的依据
+`data/` 被 Git 忽略，原始数据和处理记录均保存在本机。可通过 `REPULSE_DATASETS_DIR` 指定数据根目录。
 
-这些Sxx记录属于作者的有氧第一版协议，原始tags.csv各有12个标记。已实际查看作者Notebook的协议图：
+## 恢复起点与时间窗口
+
+S01、S02、S04 使用作者的有氧第一版协议，每条记录有 12 个事件标记。协议图如下：
 
 ![作者有氧第一版协议与事件编号](dataset-protocol-aerobic-v1.png)
 
-- 第11个标记（从0计数为10）：110 rpm负荷结束、开始低阻力踩踏恢复。
-- 第12个标记：低阻力恢复结束、开始静止休息。
+- 第 11 个标记（从 0 计数为 10）：110 rpm 负荷结束，开始低阻力踩踏恢复。
+- 第 12 个标记：低阻力恢复结束，进入静止休息。
 
-图像来源和Notebook SHA256记于 [dataset-protocol-provenance.json](dataset-protocol-provenance.json)。系统固定使用第11个真实事件，标注为**主动恢复**；没有按波形峰值、设备HR变化或网页点击时间猜测运动结束。
+图像来源及 Notebook SHA-256 见 [dataset-protocol-provenance.json](dataset-protocol-provenance.json)。系统以第 11 个标记为主动恢复起点。
 
-演示截取该事件前10秒至后124秒，共134秒、8576个原始BVP样本。演示时间轴从0开始，10秒处自动到达原始事件；三个8秒关键窗口相对于事件固定为[-4,4)、[56,64)、[116,124)秒。用户改变播放速度或拖动回放，不会改写原始事件及结果窗口。
+每次处理截取起点前 10 秒至起点后 124 秒，共 134 秒、8576 个 BVP 样本。片段时间从 0 开始，恢复起点位于第 10 秒。三个 8 秒窗口相对起点分别为 `[-4, 4)`、`[56, 64)` 和 `[116, 124)` 秒。播放速度和回放定位不改变这些时间边界。
 
-原始日期已由数据提供方匿名平移；同次记录的相对时间仍对齐。界面中的记录创建日期属于本次运行，原始采集日期仅作来源与对齐信息。
+数据提供方对原始日期做了平移；同次记录内的相对时间用于对齐。界面的记录创建时间是本次处理的时间。
 
-## 保留原采样率和量纲
+## 采样率与量纲
 
-- BVP：64 Hz，原始有正有负的任意单位（a.u.）。不平移到虚构的ADC范围，也不进行100 Hz重采样。
-- 加速度：32 Hz，原始整数单位为1/64 g。先除以64，再逐轴减去1秒时间常数的因果指数移动均值，取动态加速度三轴模。将最后一个已知32 Hz值保持到对应64 Hz时刻；不使用未来加速度。
-- HR.csv：1 Hz，设备由同一条BVP计算的10秒平均脉率。它只作显示对照，算法不读取其值，不能称为独立ECG金标准。
+| 文件 | 原始数据 | 项目中的处理 |
+| --- | --- | --- |
+| `BVP.csv` | 64 Hz，带正负值的设备相对单位（a.u.） | 保留原始采样率和数值，供脉率算法处理 |
+| `ACC.csv` | 32 Hz 三轴加速度，整数单位为 1/64 g | 换算为 g，逐轴减去时间常数为 1 秒的因果指数移动均值，再取动态向量的模；以前值保持对齐到 BVP 时间轴 |
+| `HR.csv` | 1 Hz，设备由同一 BVP 计算的 10 秒平均脉率 | 仅用于显示对照，不输入脉率算法；不是独立的心电参考 |
+| `tags.csv` | 同次记录的事件标记 | 确定主动恢复起点 |
 
-处理记录的CSV同时保留原始匿名时间戳和XYZ加速度（g），加速度按最近已到达的32 Hz值对齐到64 Hz行。这些字段用于追溯原始记录，不参与替代脉率估计。
+处理记录的 CSV 同时保存原始平移时间戳及以 g 表示的 XYZ 加速度。32 Hz 的加速度以前值保持方式对应到 64 Hz 样本行。
 
-不同采集策略在原始观测进入DSP之前决定开启或关闭；关闭区间为明确缺测。重新开启后执行真实2秒预热。原始文件与各策略的输入标识一致，不能先用完整波形计算结果，再伪装漏采。
+采集策略在 BVP 进入 DSP 之前确定样本是否可用；关闭期间记录为缺测，重新开启后预热 2 秒。策略比较使用同一原始片段及输入标识。
 
-## 信号质量与当前样本结果
+## 信号质量
 
-默认记录为S02，覆盖完整主动恢复阶段。它在60秒与120秒窗口具有可用估计，但起点窗口含形态和间期干扰，被当前工程质量规则拒绝。因此ΔPR60与ΔPR120会显示起点缺测，而不会借用之后的脉率填补起点。
+连续读取默认记录 S02 时，60 秒和 120 秒窗口有有效脉率估计；起点窗口的峰间期和自相关一致性未通过质量检查，因此 `ΔPR60` 和 `ΔPR120` 均缺测。S01 和 S04 的部分窗口也存在信号质量问题。
 
-S01和S04的部分关键窗口也有运动或波形干扰。这些记录用于展示系统如何保留真实波形、判断可用性和解释缺测。公开真人数据并不保证所有窗口都有可用数值；本次没有为了获得完整变化量而移动起点、替换波形或降低质量门限。
+质量规则包括 0.5–5 Hz 因果 Butterworth 带通、8 秒分析窗口、2 秒预热、峰间期中位数和自相关一致性检查。阈值属于工程参数，尚未经独立心电参考标定；无效结果以 `null` 及原因码表示。
 
-当前质量规则为工程规则：0.5–5 Hz因果Butterworth带通、8秒支持区间、2秒预热、峰间期中位数和自相关一致性检查。原始BVP中的负值是正常量纲，不会被当作ADC饱和。窗口完整性、重启与已发生的缺口均保留，缺测结果为null。
-
-## 可复现检查
+## 验证
 
 ```sh
 python -m pytest tests/unit/test_public_data.py tests/unit/test_signal.py tests/unit/test_policies.py
 ```
 
-测试只使用已经下载并校验的真实记录，不在测试过程中请求网络。检查包括原始文件哈希、真实采样值逐点一致、64 Hz时序、固定事件、跨块滤波一致、缺口与预热传播，以及修改设备HR字段不改变算法结果。
+测试使用本地已下载记录，覆盖文件哈希、逐点采样值、64 Hz 时序、阶段标记、分块滤波、缺口与预热传播，以及设备 HR 字段对算法输出的隔离。

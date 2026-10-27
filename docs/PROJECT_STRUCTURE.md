@@ -1,6 +1,6 @@
 # 项目文件与目录说明
 
-本文按当前RePulse工程说明目录和文件用途。先看根目录、后端和前端即可了解网页运行方式；固件部分对应可选的FreeRTOS/QEMU处理。
+本文列出 RePulse 的目录与文件职责。固件目录包含在 QEMU 中运行的 FreeRTOS 实现，以及尚未完成实机验证的 STM32 目标。
 
 ## 根目录与开发配置
 
@@ -63,7 +63,7 @@ backend/
     └── compare.py               同一真实输入的三策略配对比较和汇总指标
 ```
 
-`public_data.py`读取原始64 Hz BVP，并将32 Hz加速度换算为g、提取动态运动量、以前值保持方式对齐。`HR.csv`只供显示参考，不参与算法估计。`session.py`和`firmware_port.py`分别承接Python与FreeRTOS处理结果；`replay.py`不会改写原记录。
+`public_data.py` 读取原始 64 Hz BVP，将 32 Hz 加速度换算为 g，计算动态运动量并以前值保持方式对齐。`HR.csv` 仅用于显示对照。`session.py` 调用 `Processor` 完成主机端信号处理；`firmware_port.py` 负责与 QEMU 固件通信并归档固件结果；`replay.py` 不改写原记录。
 
 ## 浏览器前端 web/
 
@@ -126,7 +126,7 @@ firmware/
         └── repulse.map          STM32链接与内存占用映射
 ```
 
-QEMU模式由Python统一完成加速度预处理；PPG滤波、峰检测、质量与窗口结果由固件任务计算。STM32目标目前只验证交叉编译，不能视为传感器和开发板已经接通。
+在 QEMU 固件仿真路径中，加速度预处理由主机完成；PPG 滤波、峰检测、质量判定和窗口计算由固件任务完成。STM32 目标目前仅通过交叉编译，传感器和板级功能尚未验证。
 
 ### 第三方FreeRTOS文件
 
@@ -242,7 +242,7 @@ docs/
     └── real-comparison.json     真实片段的三策略、四相位比较结果
 ```
 
-`SYSTEM_DESIGN.md`与`ALGORITHM_CONTRACT.md`仅保存在本机，不包含在GitHub仓库或新克隆中。数据来源、安装、固件运行和验证说明继续随仓库提供。
+`SYSTEM_DESIGN.md` 与 `ALGORITHM_CONTRACT.md` 可保存在开发者本机，不包含在仓库当前版本中；此前的 Git 提交可能仍含历史版本。数据来源、安装、固件运行和验证说明随仓库提供。
 
 ## 本地数据与运行产物 data/
 
@@ -321,7 +321,7 @@ data/
 
 1. `README.md`：了解如何下载数据、启动和使用。
 2. `run.py` → `backend/api/app.py`：找到应用入口及接口。
-3. `backend/sources/public_data.py` → `algorithms/processor.py` → `engines/session.py`：理解真实样本如何变成窗口结果。
-4. `web/js/app.js` → `api.js`、`charts.js`：理解页面操作、通信和绘图。
+3. `backend/sources/public_data.py` → `backend/algorithms/processor.py` → `backend/engines/session.py`：理解真实样本如何变成窗口结果。
+4. `web/js/app.js` → `web/js/api.js`、`web/js/charts.js`：理解页面操作、通信和绘图。
 5. `docs/FIRMWARE.md` → `firmware/common/main.c`、`dsp.c`：理解FreeRTOS版本。
 6. `tests/`与`docs/VERIFICATION.md`：核对已验证的行为和限制。
