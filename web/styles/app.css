@@ -164,19 +164,80 @@ td .muted {display: block; font-size: 11px; margin-top: 4px;}
 .timeline .target {position: absolute; width: 1px; height: 30px; top: 0; background: #86a7e9;}
 .timeline .target span {position: absolute; top: 31px; left: -8px; white-space: nowrap; color: #607b9d; font-size: 10px;}
 .timeline .cursor {position: absolute; width: 2px; height: 33px; top: 0; background: var(--teal);}
-/* 腕端外观、像素屏幕预览和按键。 */
+/* 恢复过程右栏的腕端同步镜像与会话控制。 */
 .wrist-panel {padding: 20px; text-align: center;}
+.wrist-panel-head {display: flex; align-items: baseline; justify-content: space-between; gap: 10px;}
 .wrist-panel h2 {font-size: 14px; text-align: left;}
-.watch-shell {width: 180px; padding: 17px 10px; margin: 27px auto 18px; background: linear-gradient(120deg,#334357,#142235); border: 2px solid #32465d; border-radius: 27px; position: relative; box-shadow: 0 8px 18px #20344f17;}
-.watch-shell:before, .watch-shell:after {content: ''; position: absolute; left: 42px; width: 90px; height: 13px; background: #283d55;}
-.watch-shell:before {top: -13px; border-radius: 8px 8px 0 0;}
-.watch-shell:after {bottom: -13px; border-radius: 0 0 8px 8px;}
-.wrist-canvas {display: block; width: 156px; height: 78px; border: 4px solid #14252f; border-radius: 5px; image-rendering: pixelated;}
-.watch-buttons {display: flex; justify-content: center; gap: 22px; margin: 26px 0 12px;}
-.watch-key {width: 43px; height: 36px; border: 1px solid #d2ddea; border-radius: 7px; background: #f1f5fa; color: #486582; font-size: 13px;}
-.watch-key:active {background: #dce8fb;}
+.mirror-link {display: block; width: fit-content; margin: 20px auto 16px; padding: 8px; border-radius: 31px; background: #000; box-shadow: 0 0 0 5px #2b333e, 0 12px 24px -10px #1a2c4466;}
+.mirror-link:focus-visible {outline-offset: 7px;}
+.wrist-mirror {display: block; width: 150px; height: 175px; border-radius: 23px;}
 .wrist-help {font-size: 10px; color: #60768f; line-height: 2;}
 .session-controls {border-top: 1px solid var(--line); padding: 16px 20px; display: flex; flex-direction: column; gap: 10px;}
+/* 腕端显示预览：独立舞台占满导航栏右侧，腕表实物外观是唯一的视觉重点。 */
+.content.immersive .topbar {display: none;}
+.content.immersive .main {padding: 0; max-width: none;}
+.content.immersive .connection-banner.show {position: fixed; top: 0; right: 0; left: 216px; z-index: 40;}
+.wrist-stage {height: 100vh; display: grid; grid-template-columns: 212px minmax(0, 1fr) 280px; grid-template-rows: auto minmax(0, 1fr); grid-template-areas: "head device notes" "map device notes"; overflow: hidden; background: radial-gradient(ellipse 46% 64% at 50% 52%, #fbfcfd 0%, #eef2f6 58%, #e2e7ed 100%);}
+.stage-head {grid-area: head; padding: 26px 8px 18px 28px;}
+.stage-head h1 {font-size: 20px; line-height: 1.4; letter-spacing: -.2px;}
+.stage-head p {margin-top: 6px; font-size: 12px; line-height: 1.8; color: var(--muted);}
+.stage-status {display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; margin-top: 12px; font-size: 12px; color: #4d6480;}
+#stage-connection {display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;}
+.screen-map {grid-area: map; padding: 0 8px 24px 28px;}
+.device-notes {grid-area: notes; padding: 28px 28px 24px 8px;}
+.screen-map, .device-notes {min-height: 0; overflow-y: auto; font-size: 12px; color: #4a6079;}
+.screen-map h2, .device-notes h2 {font-size: 13px; color: #24364c;}
+.screen-map > p {margin: 6px 0 14px; font-size: 11px; line-height: 1.8; color: var(--muted);}
+.map-tree ul {list-style: none; margin: 0; padding: 0;}
+.map-tree ul ul {margin: 2px 0 6px 10px; padding-left: 10px; border-left: 1px solid #cdd6e1;}
+.map-node {display: block; width: 100%; padding: 5px 9px; border: 0; border-radius: 6px; background: none; color: #4a6079; font-size: 12px; line-height: 1.7; text-align: left;}
+.map-node:hover {background: #24364c0d;}
+.map-node.current {background: #245ff214; color: #1d4fc4; font-weight: 600;}
+.map-pages {display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 5px 9px;}
+.map-page {padding: 1px 6px; border: 1px solid #d3dbe6; border-radius: 4px; background: #ffffffa6; color: #61758d; font-size: 10px; line-height: 1.8;}
+.map-page:hover {border-color: #9fb5d6;}
+.map-page.current {border-color: var(--blue); background: var(--blue); color: #fff;}
+.device-area {grid-area: device; position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden;}
+/* 腕表外观以屏幕像素为单位（--u），整体按 --s 缩放：显示区 240×280，玻璃边 12，表壳边 16。 */
+.watch {--s: 1.5; --u: calc(var(--s) * 1px); position: relative; flex-shrink: 0; width: calc(312 * var(--u)); height: calc(336 * var(--u)); margin: calc(32 * var(--u)) 0; touch-action: none; user-select: none; -webkit-user-select: none;}
+.watch .case {position: absolute; z-index: 1; top: 0; left: calc(8 * var(--u)); width: calc(296 * var(--u)); height: calc(336 * var(--u)); border-radius: calc(68 * var(--u)); background: linear-gradient(152deg, #5d6673 0%, #303844 26%, #1b2028 62%, #2a313b 100%); box-shadow: inset 0 calc(1.5 * var(--u)) 0 #ffffff38, inset 0 calc(-2 * var(--u)) calc(4 * var(--u)) #00000080, 0 calc(26 * var(--u)) calc(44 * var(--u)) calc(-14 * var(--u)) #111d2e80, 0 calc(8 * var(--u)) calc(16 * var(--u)) #111d2e33;}
+.watch .glass {position: absolute; inset: calc(16 * var(--u)); padding: calc(12 * var(--u)); border-radius: calc(52 * var(--u)); background: #000; box-shadow: inset 0 0 0 var(--u) #11161d, 0 0 0 var(--u) #0b0e13;}
+.watch .glass::after {content: ''; position: absolute; inset: 0; border-radius: inherit; background: linear-gradient(128deg, #ffffff17 0%, #ffffff00 34%); pointer-events: none;}
+.watch canvas {display: block; width: calc(240 * var(--u)); height: calc(280 * var(--u)); border-radius: calc(36 * var(--u)); image-rendering: pixelated; transition: filter .4s;}
+.watch.smooth canvas {image-rendering: auto;}
+.strap {position: absolute; left: 50%; width: calc(196 * var(--u)); height: calc(190 * var(--u)); transform: translateX(-50%); background: linear-gradient(90deg, #1a222e 0%, #2b3544 46%, #1d2531 100%);}
+.strap.top {top: calc(-150 * var(--u)); border-radius: calc(20 * var(--u)) calc(20 * var(--u)) 0 0; -webkit-mask-image: linear-gradient(to top, #000 60%, transparent); mask-image: linear-gradient(to top, #000 60%, transparent);}
+.strap.bottom {bottom: calc(-150 * var(--u)); background: radial-gradient(circle at 50% calc(12 * var(--u)), #0c1117 calc(3.6 * var(--u)), transparent calc(4.2 * var(--u))) 0 calc(58 * var(--u)) / 100% calc(24 * var(--u)) repeat-y, linear-gradient(90deg, #1a222e 0%, #2b3544 46%, #1d2531 100%); -webkit-mask-image: linear-gradient(to bottom, #000 60%, transparent); mask-image: linear-gradient(to bottom, #000 60%, transparent);}
+.pusher {position: absolute; z-index: 0; width: calc(12 * var(--u)); height: calc(44 * var(--u)); padding: 0; border: 0; border-radius: calc(4 * var(--u)); background: linear-gradient(90deg, #1d232b, #4b5461 50%, #262d36); box-shadow: 0 var(--u) calc(2 * var(--u)) #0000005c; transition: transform .07s ease-out;}
+.pusher.left {left: 0;}
+.pusher.right {right: 0;}
+.pusher.upper {top: calc(88 * var(--u));}
+.pusher.lower {top: calc(204 * var(--u));}
+.pusher.left.pressed {transform: translateX(calc(3 * var(--u)));}
+.pusher.right.pressed {transform: translateX(calc(-3 * var(--u)));}
+.pusher[data-key="ok"] {background: linear-gradient(180deg, transparent 40%, #e5404f 40%, #e5404f 60%, transparent 60%), linear-gradient(90deg, #1d232b, #4b5461 50%, #262d36);}
+.engrave {position: absolute; z-index: 2; width: calc(16 * var(--u)); font-size: calc(5.6 * var(--u)); line-height: 1; text-align: center; color: #d5deea99; text-shadow: 0 calc(-.5 * var(--u)) 0 #00000099; pointer-events: none;}
+.engrave.left {left: calc(8 * var(--u));}
+.engrave.right {right: calc(8 * var(--u));}
+.engrave.upper {top: calc(107 * var(--u));}
+.engrave.lower {top: calc(223 * var(--u));}
+.watch.buzz {animation: buzz .36s linear;}
+@keyframes buzz {20% {transform: translateX(-2px);} 40% {transform: translateX(2px);} 60% {transform: translateX(-1.5px);} 80% {transform: translateX(1.5px);}}
+.key-bar {display: none;}
+.key-bar .btn.pressed {background: #e3ecfd; border-color: #a9c0ea;}
+.device-notes section + section {margin-top: 20px; padding-top: 18px; border-top: 1px solid #d3dbe5;}
+.key-legend, .spec-list {display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 9px 10px; margin: 12px 0 0;}
+.key-legend dt {font-weight: 600; color: #2a3e56;}
+.spec-list dt {color: #6b7e95;}
+.key-legend dd, .spec-list dd {margin: 0; line-height: 1.75; color: #34495f;}
+kbd {display: inline-block; min-width: 22px; margin-right: 7px; padding: 0 5px; border: 1px solid #c9d3df; border-bottom-width: 2px; border-radius: 4px; background: #fff; color: #3b5170; font: 10px/1.7 -apple-system, BlinkMacSystemFont, sans-serif; text-align: center;}
+.input-log {list-style: none; margin: 10px 0 0; padding: 0;}
+.input-log li {display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 10px; padding: 7px 0; border-bottom: 1px solid #dbe2ea; line-height: 1.7;}
+.input-log li:last-child {border-bottom: 0;}
+.input-log li.empty-log {display: block; color: var(--muted);}
+.input-log time {color: #73859b; font-variant-numeric: tabular-nums;}
+.input-log strong {display: block; font-weight: 600; color: #2a3e56;}
+.stage-note {margin-top: 18px; font-size: 11px; line-height: 1.85; color: #6d7f95;}
 /* 事件、连接提示和页面等待或失败状态。 */
 .event-list {padding: 0; margin: 0; list-style: none;}
 .event-list li {display: flex; align-items: flex-start; gap: 13px; padding: 10px 0; border-bottom: 1px solid #edf1f6; font-size: 11px; line-height: 1.85; color: #4e6683;}
@@ -259,6 +320,20 @@ input[type=checkbox] {accent-color: var(--blue); width: 16px; height: 16px;}
   .metric-value {font-size: 35px;}
   .metric-value.quality {font-size: 21px;}
   .monitor-layout .panel-header, .monitor-layout .panel-body {padding-left: 17px; padding-right: 17px;}
+  .content.immersive .connection-banner.show {left: 186px;}
+  .wrist-stage {grid-template-columns: 184px minmax(0, 1fr) 236px;}
+  .stage-head {padding-left: 22px;}
+  .screen-map {padding-left: 22px;}
+  .device-notes {padding-right: 22px;}
+}
+/* 较窄桌面与平板：腕端预览改为上下排布，腕表占用整行宽度。 */
+@media (max-width: 1100px) {
+  .wrist-stage {height: auto; min-height: 100vh; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: auto auto auto; grid-template-areas: "head head" "device device" "map notes";}
+  .stage-head {padding: 24px 24px 0;}
+  .device-area {height: calc(100vh - 150px); min-height: 440px;}
+  .screen-map {padding: 8px 12px 28px 24px;}
+  .device-notes {padding: 8px 24px 28px 12px;}
+  .screen-map, .device-notes {overflow: visible;}
 }
 /* 平板宽度：监护内容改为单列。 */
 @media (max-width: 980px) {
@@ -277,7 +352,7 @@ input[type=checkbox] {accent-color: var(--blue); width: 16px; height: 16px;}
   h2 {font-size: 15px;}
   .sidebar {inset: auto 0 0; width: 100%; height: 108px; padding: 6px 9px; background: #fff; border-top: 1px solid var(--line); box-shadow: 0 -3px 18px #21364e0b;}
   .brand, .sidebar-foot {display: none;}
-  .sidebar nav {display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 3px 4px;}
+  .sidebar nav {display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 3px 4px;}
   .nav-item {flex-direction: column; gap: 3px; padding: 4px 2px; min-height: 46px; font-size: 10px; color: #607995; border-radius: 6px;}
   .nav-item svg {width: 17px; height: 17px;}
   .nav-item.active {color: #2057c9; background: #edf3ff;}
@@ -317,7 +392,7 @@ input[type=checkbox] {accent-color: var(--blue); width: 16px; height: 16px;}
   .metric-value.quality {font-size: 17px; padding-top: 9px; word-break: break-word;}
   .metric p {font-size: 10px; line-height: 1.7;}
   .active-banner {font-size: 11px; padding: 12px 13px; gap: 9px; flex-wrap: wrap;}
-  .monitor-layout > aside.stack {display: flex;}
+  .monitor-layout > aside.stack {display: flex; align-items: stretch;}
   .chart-head {padding: 16px 13px 7px; gap: 10px;}
   .chart-head h2, .chart-head h3 {font-size: 12px;}
   .chart-head small {font-size: 10px;}
@@ -365,6 +440,18 @@ input[type=checkbox] {accent-color: var(--blue); width: 16px; height: 16px;}
   .connection-banner {padding: 11px 16px; font-size: 11px;}
   #toasts {left: 12px; right: 12px; bottom: 120px; max-width: none;}
   .toast {font-size: 12px;}
+  .content.immersive .connection-banner.show {left: 0;}
+  .wrist-stage {min-height: calc(100vh - 108px); grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-template-areas: "head" "device" "notes" "map";}
+  .stage-head {padding: 20px 16px 0;}
+  .device-area {height: auto; min-height: 0;}
+  .screen-map {padding: 0 16px 24px;}
+  .device-notes {padding: 8px 16px 8px;}
+  .engrave {display: none;}
+  .watch {margin: calc(44 * var(--u)) 0 calc(56 * var(--u));}
+  .strap {height: calc(96 * var(--u));}
+  .strap.top {top: calc(-52 * var(--u));}
+  .strap.bottom {bottom: calc(-52 * var(--u));}
+  .key-bar {display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; width: min(100%, 320px); margin-bottom: 4px;}
 }
 /* 尊重系统的减少动态效果设置。 */
 @media (prefers-reduced-motion: reduce) {

@@ -1,8 +1,21 @@
 # 验证记录
 
-以下结果记录于 2026 年 10 月 27 日，项目版本 0.2.0，验证平台为 macOS Apple Silicon、Miniforge Python 3.12。测试报告记录当次运行结果；后续修改应重新执行相应测试。
+本文保留 2026 年 10 月 27 日基础版本与 2026 年 11 月 2 日腕端界面更新的验证结果。项目版本 0.2.0，验证平台为 macOS Apple Silicon、Miniforge Python 3.12。测试报告记录当次运行结果；后续修改应重新执行相应测试。
 
-## 测试与构建
+## 2026 年 11 月 2 日：腕端界面更新
+
+| 验证 | 当次结果 | 证据 |
+| --- | --- | --- |
+| 单元、接口、固件与浏览器合并测试 | **76 passed**，131.33 秒；0 失败、0 错误、0 跳过 | [wrist-all-tests.xml](verification/wrist-all-tests.xml) |
+| Chromium | 8 项通过，包含原有 4 项及新增 4 项腕端测试；覆盖九个路由 | `tests/e2e/browser_test.py` |
+| 腕端布局与操作 | 1440、1024、360 px 布局；四按键与键盘、八应用菜单、10 倍速完整处理、监护镜像、独立回放与离页关闭 | `test_wrist_full_workspace_layout_and_button_navigation`、`test_wrist_buttons_complete_shared_session_and_independent_replay` |
+| 草稿与异步状态 | 页面栏及路由离开前保护设置；保存持久化；迟到的比较列表响应不会覆盖新任务 | `test_wrist_settings_draft_protection_and_persistence`、`test_wrist_new_comparison_survives_delayed_initial_list` |
+| 跨端设置补充回归 | 最后扩展设置用例后单独复验：**1 passed**，2.68 秒；电脑端保存后腕端同步，随后修改其他字段不会覆盖该值 | [wrist-settings-sync.xml](verification/wrist-settings-sync.xml) |
+| 静态检查 | Ruff 检查与格式检查通过；全部前端模块语法检查及 Git 空白检查通过 | `ruff check backend tests scripts`、`ruff format --check backend tests scripts`、`node --check`、`git diff --check` |
+
+腕端预览已人工检查桌面、平板和手机截图，另外检查了 768 px 与 320 px 下的横向边界；[桌面截图](screenshots/11-wrist-preview.png)。功能与移植边界见 [腕端界面说明](WRIST_UI.md)。这次验证覆盖浏览器中的显示和输入模拟，尚未验证物理屏幕、按键或振动器。
+
+## 2026 年 10 月 27 日：测试与构建
 
 | 验证 | 当次结果 | 证据 |
 | --- | --- | --- |

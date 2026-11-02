@@ -1,4 +1,4 @@
-// Canvas 绘图模块：展示真实波形、导出图片及绘制腕端屏幕预览。
+// Canvas 绘图模块：展示真实波形并导出图片；腕端屏幕由 wrist.js 绘制。
 // 根据屏幕像素比绘制坐标轴，横轴统一使用相对恢复起点的记录时间。
 export function drawChart(canvas, samples = [], options = {}) {
   if (!canvas) return;
@@ -74,34 +74,4 @@ export function exportPNG(canvas, title = 'RePulse · 公开人体记录') {
   ctx.fillText(`导出时间：${new Date().toLocaleString('zh-CN')}；横轴为相对恢复起点的记录时间。`, 20, 50, out.width - 40);
   ctx.drawImage(canvas, 0, 72);
   const a = document.createElement('a'); a.href = out.toDataURL('image/png'); a.download = `repulse-${Date.now()}.png`; a.click();
-}
-
-// 用同一份处理快照绘制 128×64 腕端预览，支持脉率、窗口和质量三页。
-export function drawWrist(canvas, snapshot, page = 0) {
-  if (!canvas) return;
-  canvas.width = 128; canvas.height = 64;
-  const c = canvas.getContext('2d'); c.fillStyle = '#122e31'; c.fillRect(0, 0, 128, 64); c.fillStyle = '#a5f1da';
-  c.font = '7px monospace'; c.fillText('RePulse', 5, 8);
-  c.fillText(snapshot?.execution_mode === 'FREERTOS_QEMU' ? 'FreeRTOS' : 'Python', 83, 8);
-  c.fillRect(4, 12, 120, 1);
-  const result = snapshot?.latest_result || {};
-  const t0 = snapshot?.t0_us ?? snapshot?.dataset?.t0_us ?? 10000000;
-  const relative = ((snapshot?.engine_time_us || 0) - t0) / 1e6;
-  if (!snapshot) {
-    c.font = '11px monospace'; c.font='12px sans-serif'; c.fillText('待开始', 44, 35); c.font='8px sans-serif'; c.fillText('公开人体记录', 22, 52);
-  } else if (page % 3 === 1) {
-    c.font = '8px sans-serif'; c.fillText('关键窗口脉率', 5, 24);
-    for (const [i, center] of [0, 60, 120].entries()) {
-      const w = (snapshot.key_windows || []).find(x => (x.center_s ?? x.center_seconds) === center);
-      c.fillText(`${center===0?'起点':center+'秒'} ${w?.valid ? Math.round(w.pulse_bpm) + ' BPM' : '缺测'}`, 5, 36 + i * 10);
-    }
-  } else if (page % 3 === 2) {
-    c.font = '8px sans-serif'; c.fillText('信号质量', 5, 25);
-    c.fillText(result.valid ? '可用' : '暂不可用', 5, 39);
-    c.font = '8px sans-serif'; c.fillText(`记录时间 ${relative.toFixed(1)}秒`, 5, 53);
-  } else {
-    c.font = '22px monospace'; c.fillText(result.valid && result.pulse_bpm != null ? String(Math.round(result.pulse_bpm)) : '--', 8, 39);
-    c.font = '8px monospace'; c.fillText('BPM', 83, 36);
-    c.font = '8px sans-serif'; c.fillText(relative < 0 ? `起点前 ${(-relative).toFixed(0)}秒` : `恢复 ${relative.toFixed(0)}秒`, 5, 53);
-  }
 }

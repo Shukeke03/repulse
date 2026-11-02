@@ -1,6 +1,7 @@
-// 单页应用主模块：组织八个功能页面，管理服务快照、路由和用户操作。
+// 单页应用主模块：组织九个功能页面，管理服务快照、路由和用户操作。
 import {api, socket} from './api.js';
-import {drawChart, drawWrist, exportPNG} from './charts.js';
+import {drawChart, exportPNG} from './charts.js';
+import {PANEL, SCREEN_MAP, createWrist, readingIntervals} from './wrist.js';
 
 // 共用图标、显示格式及后端状态到中文文案的映射。
 const paths = {
@@ -19,6 +20,7 @@ const paths = {
   play: '<path d="m8 4 12 8-12 8z"/>',
   pause: '<path d="M8 4v16m8-16v16"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/>',
+  watch: '<rect x="6" y="6" width="12" height="12" rx="3"/><path d="M9 6l.7-3h4.6l.7 3M9 18l.7 3h4.6l.7-3M18 10.5h1.5M9.5 12h1.5l1-2 1.5 4 1-2h1"/>',
 };
 const icon = name => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.info}</svg>`;
 const esc = value => String(value ?? '').replace(/[&<>"']/g, x => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[x]));
@@ -52,13 +54,24 @@ const reasonsMap = {
 const explain = value => (Array.isArray(value) ? value : value ? [value] : []).map(x => typeof x === 'string' ? reasonsMap[x] || '数据未通过质量检查' : x.message || '依赖窗口不可用').join('；');
 const localDate = value => value ? new Date(value).toLocaleString('zh-CN', {year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'}) : '—';
 const fmtBytes = value => typeof value === 'number' ? value >= 1e9 ? `${(value/1e9).toFixed(1)} GB` : value >= 1e6 ? `${(value/1e6).toFixed(2)} MB` : `${Math.round(value/1000)} KB` : '—';
-const titles = {'/':'工作台', '/monitor':'恢复过程', '/sessions':'记录库', '/replay':'记录回放', '/compare':'策略比较', '/lab':'数据与片段', '/system':'系统状态', '/settings':'设置'};
+const titles = {'/':'工作台', '/monitor':'恢复过程', '/wrist':'腕端显示预览', '/sessions':'记录库', '/replay':'记录回放', '/compare':'策略比较', '/lab':'数据与片段', '/system':'系统状态', '/settings':'设置'};
 // 仅保存当前视图状态；演示配置和最终结果以服务端记录为准。
 const state = {
   bootstrap:null, live:null, connected:false, route:'', token:0, cleanups:[],
   settings:null, settingsDirty:false, frozen:false, frozenSnapshot:null, signal:'ppg', seconds:10,
-  wristPage:0, wristActivity:performance.now(), lastUI:0, drawerDirty:false, drawerRestore:null,
+  lastUI:0, drawerDirty:false, drawerRestore:null,
 };
+// 腕端系统常驻于各页面之间：切换路由不会丢失腕端当前所在页面。
+const wrist = createWrist({
+  api, socket,
+  live: () => state.live, connected: () => state.connected,
+  bootstrap: () => state.bootstrap, settings: () => state.settings,
+  refresh: () => bootstrap(),
+  startSession: body => startSession(body),
+  cancelSession: () => sessionCommand('cancel'),
+  saveSettings: values => saveSettings(values),
+  deleteRecord: id => deleteRecords([id]),
+});
 
 const on = (selector, event, callback) => document.querySelector(selector)?.addEventListener(event, callback);
 const main = () => document.querySelector('#main');
@@ -92,7 +105,7 @@ async function run(button, action) {
 function navigate(path) {location.hash = `#${path}`;}
 // 创建固定导航、连接提示和页面容器，各路由只更新主内容区域。
 function shell() {
-  const nav = [['/','home'], ['/monitor','pulse'], ['/sessions','archive'], ['/replay','replay'], ['/compare','compare'], ['/lab','data'], ['/system','system'], ['/settings','settings']];
+  const nav = [['/','home'], ['/monitor','pulse'], ['/wrist','watch'], ['/sessions','archive'], ['/replay','replay'], ['/compare','compare'], ['/lab','data'], ['/system','system'], ['/settings','settings']];
   document.querySelector('#app').innerHTML = `<aside class="sidebar"><a class="brand" href="#/"><span class="brand-mark">${icon('pulse')}</span><span><strong>RePulse</strong><small>复脉 · 运动恢复监护</small></span></a><nav aria-label="主要页面">${nav.map(([path,name]) => `<a class="nav-item" href="#${path}" data-nav="${path}">${icon(name)}<span>${titles[path]}</span></a>`).join('')}</nav><div class="sidebar-foot">数据保存在本机项目目录<br>界面按原始记录时间推进</div></aside><div class="content"><header class="topbar"><div class="breadcrumb"><a href="#/">RePulse 复脉</a><span>/</span><strong id="breadcrumb-title">工作台</strong></div><div class="top-right"><span id="global-source">公开数据演示</span><span id="connection-indicator">正在连接</span></div></header><div class="connection-banner" id="connection-banner" role="status">与本地服务的连接已断开，正在重连。当前读数暂不可用；后台处理由服务继续执行。</div><main class="main" id="main" tabindex="-1"></main></div>`;
 }
 function connection(connected) {
@@ -121,6 +134,26 @@ async function sessionCommand(type) {
   const result = await api(`/sessions/${idOf(record)}/commands`, {method:'POST', body:{type, expected_revision:record.revision}});
   state.live = result.snapshot || await api(`/sessions/${idOf(record)}/snapshot`);
   globalState(); updateMonitor(); return result;
+}
+// 创建并启动一次演示；工作台与腕端共用同一流程。
+async function startSession(body) {
+  state.live = await api('/sessions', {method:'POST', body});
+  await sessionCommand('start_prepare');
+  state.frozen = false; state.frozenSnapshot = null;
+  return state.live;
+}
+// 腕端保存显示偏好与默认策略；去掉仅用于提示的生效说明后再写回页面状态。
+async function saveSettings(values) {
+  const body = {...state.settings, ...values, version: state.settings?.version};
+  delete body.effective;
+  const saved = await api('/settings', {method:'PUT', body});
+  delete saved.effective;
+  state.settings = saved; state.seconds = saved.chart_seconds || 10;
+  return saved;
+}
+async function deleteRecords(ids) {
+  await api('/sessions/delete', {method:'POST', body:{ids}});
+  if (ids.includes(idOf(state.live))) {state.live = null; globalState();}
 }
 function bindSessionControls() {
   on('#cancel-session','click', event => {
@@ -168,10 +201,7 @@ async function home(token) {
   on('#session-dataset','change',updateSelection); on('#session-source','change',updateSelection);
   on('#start-session','click', e => run(e.currentTarget, async () => {
     const selected = datasets.find(d => d.id===document.querySelector('#session-dataset').value);
-    const record = await api('/sessions',{method:'POST',body:{name:document.querySelector('#session-name').value.trim() || datasetName(selected),origin:'PUBLIC_DATA',dataset_id:selected.id,execution_mode:document.querySelector('#session-source').value,strategy,phase:Number(document.querySelector('#session-phase').value),speed:Number(document.querySelector('#session-speed').value)}});
-    state.live=record;
-    await sessionCommand('start_prepare');
-    state.frozen=false; state.frozenSnapshot=null;
+    await startSession({name:document.querySelector('#session-name').value.trim() || datasetName(selected),origin:'PUBLIC_DATA',dataset_id:selected.id,execution_mode:document.querySelector('#session-source').value,strategy,phase:Number(document.querySelector('#session-phase').value),speed:Number(document.querySelector('#session-speed').value)});
     navigate('/monitor');
   }));
   updateSelection(); bindTable();
@@ -197,17 +227,7 @@ function deltasHTML(record) {
 }
 // 将三种读取策略转换为时间轴区间，周期方案按约 70 秒读取预算计算。
 function timelineHTML(record) {
-  const strategy=record?.config_snapshot?.strategy || 'continuous';
-  let intervals = [[0,124]];
-  if (strategy==='critical') intervals=[[0,10],[20,30],[40,50],[54,64],[80,90],[100,110],[114,124]];
-  if (strategy==='periodic') {
-    const phase=record.config_snapshot.phase||0;
-    let lo=0,hi=20;
-    for(let step=0;step<50;step++){const mid=(lo+hi)/2;let on=0;for(let k=-1;k<7;k++)on+=Math.max(0,Math.min(124,phase+20*k+mid)-Math.max(0,phase+20*k));if(on<70)lo=mid;else hi=mid;}
-    const width=record.config_snapshot.periodic_width??(lo+hi)/2;
-    intervals=[];
-    for (let k=-1;k<7;k++) {const start=Math.max(0,phase+20*k),end=Math.min(124,phase+20*k+width);if(end>start)intervals.push([start,end]);}
-  }
+  const intervals=readingIntervals(record?.config_snapshot||{});
   const cursor=Math.max(0,Math.min(124,relative(record)));
   return `<div class="timeline" aria-label="恢复段读取计划；蓝色表示读取时段，绿色表示当前记录时刻">${intervals.map(([a,b])=>`<span class="segment" style="left:${a/124*100}%;width:${(b-a)/124*100}%" title="读取${a.toFixed(1)}～${b.toFixed(1)}秒"></span>`).join('')}${[0,60,120].map(t=>`<span class="target" style="left:${t/124*100}%"><span>${t}秒</span></span>`).join('')}<span class="cursor" style="left:${cursor/124*100}%"></span></div><p class="panel-note">蓝色为策略读取时段，绿色为当前记录时刻。未读取的区间不参与本次处理。</p>`;
 }
@@ -222,33 +242,31 @@ function monitor() {
     updateMonitor(true);
   });
   on('#export-chart','click',()=>run(null,()=>exportPNG(document.querySelector('#ppg-chart'),`${sourceText(state.live)} · ${metaOf(state.live).subject || ''} · ${engineText(state.live)} · 脉搏波（设备相对单位）`)));
+  // 右栏镜像腕端屏幕；按键操作在独立的腕端显示预览页面中进行。
+  wrist.start();
+  state.cleanups.push(()=>wrist.stop());
   updateMonitor(true);
 }
-// 按当前或冻结快照更新指标、波形与腕端预览，断连时停用当前读数。
+// 按当前或冻结快照更新指标、波形与窗口，断连时停用当前读数；腕端镜像由腕端模块自行刷新。
 function updateMonitor(rebuild=false) {
   const container=document.querySelector('#monitor-content'); if (!container) return;
   const current=state.live;
   for(const id of ['#freeze-view','#export-chart']){const button=document.querySelector(id);if(button)button.disabled=!current;}
-  if (!current) {container.innerHTML=empty('当前没有演示','在工作台选择一条真实记录并开始演示。','<a class="btn primary" href="#/">前往工作台</a>');return;}
+  if (!current) {container.innerHTML=empty('当前没有演示','在工作台选择一条真实记录并开始演示。','<a class="btn primary" href="#/">前往工作台</a>');delete container.dataset.session;if(wrist.target)wrist.setTarget(null);return;}
   const record=state.frozen&&state.frozenSnapshot?state.frozenSnapshot:current;
   const meta=metaOf(record), result=record.latest_result||{}, phase=phaseOf(record);
   if (rebuild || container.dataset.session!==idOf(record)) {
     container.dataset.session=idOf(record);
-    container.innerHTML=`<div class="active-banner"><span id="monitor-origin"></span><span id="monitor-clock"></span></div><div id="frozen-notice" class="info-strip warning hidden" role="status"></div><div class="monitor-layout"><div class="stack"><div class="grid three" id="monitor-metrics"></div><section class="panel"><div class="chart-head"><h2>脉搏波 <small>64 Hz · 设备相对单位</small></h2><div class="segmented" aria-label="波形显示"><button type="button" data-signal="ppg">原始</button><button type="button" data-signal="filtered">滤波后</button></div></div><canvas id="ppg-chart" class="chart-canvas" aria-label="脉搏波图，横轴为相对恢复起点的秒数"></canvas><div class="chart-caption"><span>缺口和策略未读取区间保持断线</span><div class="segmented" aria-label="波形显示时长"><button data-seconds="10">最近10秒</button><button data-seconds="30">最近30秒</button></div></div><div class="panel-separator"></div><div class="chart-head"><h2>运动变化量 <small>g</small></h2></div><canvas id="accel-chart" class="chart-canvas accel" aria-label="运动变化量图"></canvas><p class="chart-caption">g为重力加速度单位。此曲线来自原始三轴加速度的变化量，不是运动强度评分。</p></section><section class="panel"><div class="panel-header"><h2>恢复窗口</h2><span id="monitor-strategy" class="small"></span></div><div class="panel-body"><div id="monitor-timeline"></div><div class="grid three" id="monitor-windows"></div><div id="monitor-deltas"></div></div></section></div><aside class="stack"><section class="panel"><div class="wrist-panel"><h2>腕端显示预览</h2><p class="panel-note">电脑上的128×64像素界面预览</p><div class="watch-shell"><canvas id="wrist-canvas" class="wrist-canvas" aria-label="腕端显示预览"></canvas></div><div class="watch-buttons"><button type="button" class="watch-key" id="wrist-a" aria-label="查看恢复起点说明">A</button><button type="button" class="watch-key" id="wrist-b" aria-label="切换腕端页面；长按停止演示">B</button></div><p class="wrist-help">A：查看起点说明　B：切换页面<br>长按B一秒：停止演示<br>此预览不表示已连接腕带。</p></div><div id="session-controls" class="session-controls"></div></section><section class="panel"><div class="panel-header"><h2>最近事件</h2></div><div class="panel-body"><ul id="monitor-events" class="event-list"></ul></div></section></aside></div>`;
+    container.innerHTML=`<div class="active-banner"><span id="monitor-origin"></span><span id="monitor-clock"></span></div><div id="frozen-notice" class="info-strip warning hidden" role="status"></div><div class="monitor-layout"><div class="stack"><div class="grid three" id="monitor-metrics"></div><section class="panel"><div class="chart-head"><h2>脉搏波 <small>64 Hz · 设备相对单位</small></h2><div class="segmented" aria-label="波形显示"><button type="button" data-signal="ppg">原始</button><button type="button" data-signal="filtered">滤波后</button></div></div><canvas id="ppg-chart" class="chart-canvas" aria-label="脉搏波图，横轴为相对恢复起点的秒数"></canvas><div class="chart-caption"><span>缺口和策略未读取区间保持断线</span><div class="segmented" aria-label="波形显示时长"><button data-seconds="10">最近10秒</button><button data-seconds="30">最近30秒</button></div></div><div class="panel-separator"></div><div class="chart-head"><h2>运动变化量 <small>g</small></h2></div><canvas id="accel-chart" class="chart-canvas accel" aria-label="运动变化量图"></canvas><p class="chart-caption">g为重力加速度单位。此曲线来自原始三轴加速度的变化量，不是运动强度评分。</p></section><section class="panel"><div class="panel-header"><h2>恢复窗口</h2><span id="monitor-strategy" class="small"></span></div><div class="panel-body"><div id="monitor-timeline"></div><div class="grid three" id="monitor-windows"></div><div id="monitor-deltas"></div></div></section></div><aside class="stack"><section class="panel"><div class="wrist-panel"><div class="wrist-panel-head"><h2>腕端同步显示</h2><a class="small" href="#/wrist">打开腕端预览</a></div><a class="mirror-link" href="#/wrist" aria-label="打开腕端显示预览，用四个按键操作腕端界面"><canvas id="wrist-mirror" class="wrist-mirror" width="${PANEL.width}" height="${PANEL.height}" aria-hidden="true"></canvas></a><p class="wrist-help">与腕端屏幕同步显示。按键操作和全部腕端功能见“腕端显示预览”；此预览不表示已连接腕表。</p></div><div id="session-controls" class="session-controls"></div></section><section class="panel"><div class="panel-header"><h2>最近事件</h2></div><div class="panel-body"><ul id="monitor-events" class="event-list"></ul></div></section></aside></div>`;
     document.querySelectorAll('[data-signal]').forEach(el=>el.addEventListener('click',()=>{state.signal=el.dataset.signal;updateMonitor();}));
     document.querySelectorAll('[data-seconds]').forEach(el=>el.addEventListener('click',()=>{state.seconds=Number(el.dataset.seconds);updateMonitor();}));
-    on('#wrist-a','click',()=>{state.wristActivity=performance.now();openInfo('恢复起点',`<p>起点取自原始记录的阶段标记，表示高负荷骑行结束、进入低阻力放松踩踏。</p><p>本次片段第${number((metaOf(state.live).t0_us??10000000)/1e6,1)}秒为恢复起点。演示启动和播放速度不会修改这个时刻。</p>`);});
-    let holdTimer, held=false;
-    on('#wrist-b','pointerdown',()=>{state.wristActivity=performance.now();held=false;holdTimer=setTimeout(()=>{held=true;document.querySelector('#cancel-session')?.click();},1000);});
-    for (const event of ['pointerup','pointerleave','pointercancel']) on('#wrist-b',event,()=>clearTimeout(holdTimer));
-    on('#wrist-b','click',()=>{state.wristActivity=performance.now();if(!held){state.wristPage=(state.wristPage+1)%3;updateMonitor();}});
-    state.cleanups.push(()=>clearTimeout(holdTimer));
+    wrist.setTarget(document.querySelector('#wrist-mirror'));
   }
   document.querySelector('#monitor-origin').textContent=`${sourceText(record)} · ${meta.subject||meta.subject_id||'受试者编号未记录'} · ${engineText(record)}`;
   const speed=record.config_snapshot?.speed||1;
   document.querySelector('#monitor-clock').textContent=`${number(speed,0)}倍演示 · 数据时间不变`;
   const frozen=document.querySelector('#frozen-notice');frozen.classList.toggle('hidden',!state.frozen);
-  frozen.textContent=`视图已冻结在片段第${number((record.engine_time_us||0)/1e6,1)}秒。后台仍在处理，点击“返回最新数据”继续查看。`;
+  frozen.textContent=`视图已冻结在片段第${number((record.engine_time_us||0)/1e6,1)}秒。腕端同步显示与后台处理继续推进，点击“返回最新数据”恢复其余视图。`;
   const valid=state.connected&&result.valid;
   const reference=record.waveform_tail?.at(-1)?.reference_bpm;
   const referenceNote=state.connected&&Number.isFinite(reference)?`<br>设备记录：${number(reference)} BPM（同一BVP的10秒平均，仅供对照）`:'';
@@ -264,8 +282,6 @@ function updateMonitor(rebuild=false) {
   document.querySelector('#monitor-timeline').innerHTML=timelineHTML(record);
   document.querySelector('#monitor-windows').innerHTML=windowsHTML(record);
   document.querySelector('#monitor-deltas').innerHTML=deltasHTML(record);
-  drawWrist(document.querySelector('#wrist-canvas'),record,state.wristPage);
-  document.querySelector('#wrist-canvas').style.opacity=performance.now()-state.wristActivity>(state.settings?.screen_timeout_s||30)*1000?'.35':'1';
   const controls=document.querySelector('#session-controls'), nowPhase=phaseOf(current);
   if (controls.dataset.phase!==nowPhase) {
     controls.dataset.phase=nowPhase;
@@ -276,6 +292,61 @@ function updateMonitor(rebuild=false) {
 }
 function eventName(type) {
   return ({CREATED:'演示记录已创建',PREPARE_STARTED:'开始读取起点前数据',T0_LOCKED:'已到原始恢复起点',WINDOW_RESULT:'窗口处理完成',FINALIZING:'正在保存结果',COMPLETED:'演示完成',CANCELLED:'演示停止',SERVICE_SHUTDOWN:'服务退出，演示中断'})[type] || '处理状态已更新';
+}
+
+// 腕端显示预览：占满导航栏右侧区域，按设备分辨率绘制屏幕，全部功能都用四个实体按键操作。
+function wristView() {
+  const keys = [['back','返回','Esc','返回上一级；长按回到表盘'], ['up','上','↑','上一项或上一页；按住连续移动'], ['down','下','↓','下一项或下一页；按住连续移动'], ['ok','确认','Enter','进入或执行；恢复过程中长按停止演示']];
+  const label = Object.fromEntries(keys.map(([key,text]) => [key,text]));
+  const pusher = (key, side, row) => `<button type="button" class="pusher ${side} ${row}" data-key="${key}" aria-label="${label[key]}键"></button><span class="engrave ${side} ${row}" aria-hidden="true">${label[key]}</span>`;
+  const tree = list => `<ul>${list.map(item => `<li><button type="button" class="map-node" data-jump="${item.id}">${item.label}</button>${item.pages ? `<div class="map-pages">${item.pages.map((page,i) => `<button type="button" class="map-page" data-jump="${item.id}" data-page="${i}">${page}</button>`).join('')}</div>` : ''}${item.children ? tree(item.children) : ''}</li>`).join('')}</ul>`;
+  main().innerHTML = `<div class="wrist-stage" id="wrist-stage">
+      <header class="stage-head"><h1>腕端显示预览</h1><p>按 ${PANEL.width}×${PANEL.height} 设备分辨率逐像素绘制，全部功能都用四个实体按键操作。</p><div class="stage-status"><span id="stage-connection"></span><span id="stage-session"></span></div></header>
+      <nav class="screen-map" aria-label="腕端页面结构"><h2>页面结构</h2><p>当前页面随按键操作高亮。点击可直接跳转，实际腕表只用按键切换。</p><div class="map-tree">${tree(SCREEN_MAP)}</div></nav>
+      <div class="device-area" id="device-area">
+        <div class="watch" id="watch"><div class="strap top" aria-hidden="true"></div><div class="strap bottom" aria-hidden="true"></div><div class="case"><div class="glass"><canvas id="wrist-screen" width="${PANEL.width}" height="${PANEL.height}" role="img" aria-label="腕端屏幕"></canvas></div></div>${pusher('back','left','upper')}${pusher('up','left','lower')}${pusher('ok','right','upper')}${pusher('down','right','lower')}</div>
+        <div class="key-bar" aria-label="腕端按键">${[['back','返回'],['ok','确认'],['up','上'],['down','下']].map(([key,text]) => `<button type="button" class="btn" data-key="${key}">${text}</button>`).join('')}</div>
+        <p class="sr-only" id="wrist-live" aria-live="polite"></p>
+      </div>
+      <aside class="device-notes">
+        <section><h2>按键</h2><dl class="key-legend">${keys.map(([,text,kbd,help]) => `<dt>${text}</dt><dd><kbd>${kbd}</kbd>${help}</dd>`).join('')}</dl></section>
+        <section><h2>显示与输入</h2><dl class="spec-list"><dt>屏幕</dt><dd>1.69 英寸 IPS，${PANEL.width}×${PANEL.height} 像素，圆角显示区</dd><dt>颜色</dt><dd>RGB565 16 位，每帧量化后输出</dd><dt>刷新</dt><dd>数据按设置刷新，动画不超过 ${PANEL.fps} 帧/秒</dd><dt>输入</dt><dd>4 个实体按键，区分短按、长按和按住</dd><dt>提示</dt><dd>窗口结果到达时亮屏，并模拟振动</dd></dl></section>
+        <section><h2>按键记录</h2><ol class="input-log" id="input-log"><li class="empty-log">按下任意按键后，这里显示操作结果。</li></ol></section>
+        <p class="stage-note">画面在浏览器中模拟，未连接实体腕表，数据来自本机服务。显示驱动与按键尚未上板验证。</p>
+      </aside>
+    </div>`;
+  const stage = document.querySelector('#wrist-stage'), canvas = document.querySelector('#wrist-screen');
+  // 按可用空间缩放腕表：优先取让每个屏幕像素对齐整数个物理像素的倍数，空间不足时按实际比例平滑缩放。
+  function fit() {
+    const area = document.querySelector('#device-area'), watch = document.querySelector('#watch');
+    if (!area || !watch) return;
+    const rect = area.getBoundingClientRect(), mobile = matchMedia('(max-width: 767px)').matches, dpr = devicePixelRatio || 1;
+    const raw = Math.min((rect.width - 24) / 312, mobile ? Infinity : (rect.height - 48) / 336);
+    const snapped = Math.floor(raw * dpr) / dpr, scale = snapped >= raw * .85 ? snapped : Math.max(.5, raw);
+    watch.style.setProperty('--s', scale);
+    watch.classList.toggle('smooth', Math.abs(scale * dpr - Math.round(scale * dpr)) > .01);
+  }
+  function status() {
+    document.querySelector('#stage-connection').innerHTML = `<i class="live-dot ${state.connected ? '' : 'off'}"></i>${state.connected ? '服务已连接' : '连接已断开'}`;
+    document.querySelector('#stage-session').textContent = state.live ? `${active() ? '当前演示' : '最近演示'}：${stageNames[phaseOf(state.live)] || '未知状态'}` : '当前没有演示';
+  }
+  function current({screen, page, focus, node, description}) {
+    Object.assign(stage.dataset, {screen, page, focus});
+    document.querySelectorAll('.map-node').forEach(el => {const on = el.dataset.jump === node.id; el.classList.toggle('current', on); if (on) el.setAttribute('aria-current','page'); else el.removeAttribute('aria-current');});
+    document.querySelectorAll('.map-page').forEach(el => el.classList.toggle('current', el.dataset.jump === node.id && Number(el.dataset.page) === node.page));
+    document.querySelector('#wrist-live').textContent = description;
+    canvas.setAttribute('aria-label', `腕端屏幕：${description}`);
+  }
+  function inputs(log) {
+    document.querySelector('#input-log').innerHTML = log.map(item => `<li><time>${esc(item.time)}</time><span><strong>${esc(item.key)} ${esc(item.kind)}</strong>${esc(item.result)}</span></li>`).join('');
+  }
+  document.querySelectorAll('[data-jump]').forEach(el => el.addEventListener('click', () => wrist.jump(el.dataset.jump, Number(el.dataset.page || 0))));
+  wrist.start({target:canvas, root:stage, interactive:true, onChange:current, onInput:inputs});
+  if (wrist.log.length) inputs(wrist.log);
+  fit(); status();
+  const timer = setInterval(status, 500);
+  window.addEventListener('resize', fit);
+  state.cleanups.push(() => {wrist.stop(); clearInterval(timer); window.removeEventListener('resize', fit);});
 }
 
 function sessionTable(records, selectable=true) {
@@ -346,7 +417,6 @@ function openDialog(title,content,footer='') {
   window.addEventListener('keydown',keys);state.drawerCleanup=()=>window.removeEventListener('keydown',keys);
   document.querySelector('#close-drawer').focus();return true;
 }
-function openInfo(title,content){openDialog(title,content);}
 async function downloadSession(id,format) {
   const result=await api(`/sessions/${id}/exports`,{method:'POST',body:{format}});
   downloadURL(result.url,result.filename);
@@ -614,7 +684,7 @@ async function settings(token) {
   const row=(title,description,control)=>`<div class="setting-row"><div><h3>${title}</h3><p>${description}</p></div><div class="setting-value">${control}</div></div>`;
   function render() {
     let body='';
-    if(section==='display')body=`<h2>图表与腕端预览</h2>${row('图表显示范围','仅改变可见时间范围，原始数据和计算窗口保持不变。',fieldSelect('chart_seconds',[[10,'最近10秒'],[30,'最近30秒']],values.chart_seconds||10))}${row('界面更新频率','只影响画面更新，脉搏波始终按64 Hz处理。',fieldSelect('ui_hz',[[5,'每秒5次'],[10,'每秒10次']],values.ui_hz||10))}${row('腕端预览亮屏时长','超过此时长后预览变暗，按A或B唤醒。',`<input aria-label="腕端预览亮屏时长" type="number" min="10" max="120" data-setting="screen_timeout_s" value="${values.screen_timeout_s||30}"><span>秒</span>`)}`;
+    if(section==='display')body=`<h2>图表与腕端预览</h2>${row('图表显示范围','仅改变可见时间范围，原始数据和计算窗口保持不变。',fieldSelect('chart_seconds',[[10,'最近10秒'],[30,'最近30秒']],values.chart_seconds||10))}${row('界面更新频率','只影响画面更新，脉搏波始终按64 Hz处理。',fieldSelect('ui_hz',[[5,'每秒5次'],[10,'每秒10次']],values.ui_hz||10))}${row('腕端屏幕亮屏时长','超过此时长没有按键操作，腕端屏幕调暗；按任意按键唤醒。',`<input aria-label="腕端屏幕亮屏时长" type="number" min="10" max="120" data-setting="screen_timeout_s" value="${values.screen_timeout_s||30}"><span>秒</span>`)}`;
     if(section==='algorithm')body=`<h2>固定处理参数</h2>${row('脉搏波采样率','使用数据集原始时间间隔，正负幅值为设备相对单位。','<span class="setting-fixed">64 Hz</span>')}${row('运动输入采样率','原始三轴加速度为32 Hz，按时间与脉搏波对齐。','<span class="setting-fixed">32 Hz</span>')}${row('滤波与窗口','因果滤波，保留跨块状态；8秒窗口每秒更新。','<span class="setting-fixed">0.5–5 Hz / 8秒</span>')}${row('重新读取后的预热','策略重新开启或输入中断后，先建立滤波状态。','<span class="setting-fixed">2秒</span>')}${row('结果范围','用于识别不可靠的工程估计，不是临床风险等级。','<span class="setting-fixed">40–200 BPM</span>')}<p class="panel-note">这些参数与Python、FreeRTOS处理代码保持一致，在此页只读。</p>`;
     if(section==='strategy')body=`<h2>新演示的默认策略</h2>${row('读取策略','只影响之后创建的演示，当前演示保持创建时的配置。',fieldSelect('strategy',Object.entries(strategyNames),values.strategy||'continuous'))}<p class="panel-note">连续读取保留恢复段的全部观测；关键窗口优先和周期方案会在读取前排除部分时段，用于比较窗口覆盖。</p>`;
     if(section==='storage')body=`<h2>本地文件</h2>${row('原始公开数据','下载到项目内，保留数据版本、来源与校验信息。','<span class="setting-fixed mono">data/public/</span>')}${row('处理记录与索引','结果、波形、事件与SQLite索引保存在项目数据目录。','<span class="setting-fixed mono">data/</span>')}${row('记录清理','在记录库中选择需要删除的处理记录；原始公开数据不随记录删除。','<a class="btn small" href="#/sessions">打开记录库</a>')}<p class="panel-note">整个项目文件夹可以一起备份。清理文件前先停止项目服务。</p>`;
@@ -627,7 +697,7 @@ async function settings(token) {
     on('#save-settings','click',e=>run(e.currentTarget,async()=>{
       if(![10,30].includes(values.chart_seconds)||![5,10].includes(values.ui_hz??10))throw new Error('请选择页面提供的图表时长和更新频率。');
       const timeout=values.screen_timeout_s??30;
-      if(!Number.isFinite(timeout)||timeout<10||timeout>120)throw new Error('腕端亮屏时长应为10～120秒。');
+      if(!Number.isFinite(timeout)||timeout<10||timeout>120)throw new Error('腕端屏幕亮屏时长应为10～120秒。');
       const saved=await api('/settings',{method:'PUT',body:{...values,version:original.version}});
       Object.assign(original,saved);values=structuredClone(saved);state.settings=structuredClone(saved);state.seconds=values.chart_seconds||10;
       state.settingsDirty=false;render();toast('设置已保存。显示偏好已更新，默认策略用于下一次演示。');
@@ -646,19 +716,25 @@ async function route(force=false) {
     if(!confirm('设置尚未保存。离开后放弃这些修改？')) {history.replaceState(null,'',`#${state.route}`);return;}
     state.settingsDirty=false;
   }
+  if(state.route==='/wrist'&&next!=='/wrist'&&wrist.hasUnsavedSettings()) {
+    if(!confirm('腕端设置尚未保存。离开后放弃这些修改？')) {history.replaceState(null,'',`#${state.route}`);return;}
+    wrist.discardSettingsDrafts();
+  }
   if(!closeDrawer()) {history.replaceState(null,'',`#${state.route}`);return;}
   state.cleanups.splice(0).forEach(cleanup=>{try{cleanup();}catch{}});
   const token=++state.token;state.route=next;
   const base=next.startsWith('/replay')?'/replay':next;
   document.querySelectorAll('[data-nav]').forEach(el=>el.classList.toggle('active',el.dataset.nav===base));
+  document.querySelector('.content')?.classList.toggle('immersive',base==='/wrist');
   document.querySelector('#breadcrumb-title').textContent=titles[base]||'工作台';
   document.title=`${titles[base]||'工作台'} · RePulse 复脉`;
   main().innerHTML='<div class="loading"><span class="spinner"></span>正在读取页面数据</div>';
   try {
     if(base==='/replay')await replay(next.split('/')[2],token);
-    else await ({'/':home,'/monitor':monitor,'/sessions':sessions,'/compare':compare,'/lab':dataPage,'/system':system,'/settings':settings}[next]||home)(token);
+    else await ({'/':home,'/monitor':monitor,'/wrist':wristView,'/sessions':sessions,'/compare':compare,'/lab':dataPage,'/system':system,'/settings':settings}[next]||home)(token);
   } catch(error) {
     if(!isCurrent(token))return;
+    document.querySelector('.content')?.classList.remove('immersive');
     main().innerHTML=`${heading(titles[base]||'页面','当前数据未能载入。')}<div class="error-block"><p>${esc(error.message)}</p>${btn('重新载入','retry-route')}<a class="btn" href="#/">返回工作台</a></div>`;
     on('#retry-route','click',()=>route(true));
   }
@@ -684,7 +760,7 @@ async function start() {
     if(state.route==='/monitor')updateMonitor();
     else document.querySelectorAll('canvas').forEach(canvas=>{if(canvas._chart)drawChart(canvas,canvas._chart.samples,canvas._chart.options);});
   });
-  window.addEventListener('beforeunload',event=>{if(state.settingsDirty||state.drawerDirty){event.preventDefault();event.returnValue='';}});
+  window.addEventListener('beforeunload',event=>{if(state.settingsDirty||state.drawerDirty||wrist.hasUnsavedSettings()){event.preventDefault();event.returnValue='';}});
   await route();
 }
 start();

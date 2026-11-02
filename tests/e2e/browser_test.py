@@ -11,7 +11,7 @@ import urllib.request
 from pathlib import Path
 
 import pytest
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -88,9 +88,19 @@ def wait_complete(page):
     assert "已完成" in page.locator("#session-controls").inner_text()
 
 
-def test_eight_routes_and_mobile_readability(app_url, browser_page):
+def test_nine_routes_and_mobile_readability(app_url, browser_page):
     page = browser_page
-    for route in ("/", "/monitor", "/sessions", "/replay", "/compare", "/lab", "/system", "/settings"):
+    for route in (
+        "/",
+        "/monitor",
+        "/wrist",
+        "/sessions",
+        "/replay",
+        "/compare",
+        "/lab",
+        "/system",
+        "/settings",
+    ):
         visit(page, app_url, route)
         assert page.locator("h1").inner_text()
         for removed in ("随机种子", "正常恢复", "故障注入", "WORKSPACE", "每一次恢复"):
@@ -107,7 +117,17 @@ def test_eight_routes_and_mobile_readability(app_url, browser_page):
         page.locator("#data-files a[download]").first.click()
     assert raw.value.suggested_filename.endswith(".csv")
     page.set_viewport_size({"width": 360, "height": 780})
-    for route in ("/", "/monitor", "/sessions", "/replay", "/compare", "/lab", "/system", "/settings"):
+    for route in (
+        "/",
+        "/monitor",
+        "/wrist",
+        "/sessions",
+        "/replay",
+        "/compare",
+        "/lab",
+        "/system",
+        "/settings",
+    ):
         visit(page, app_url, route)
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), route
     assert page.locator('[data-nav="/settings"]').is_visible()
@@ -244,4 +264,263 @@ def test_qemu_consumes_public_record_and_reports_real_tasks(app_url, browser_pag
     page.locator('[data-nav="/monitor"]').click()
     wait_complete(page)
     assert "FreeRTOS" in page.locator("#monitor-origin").inner_text()
+    assert not page.errors
+
+
+# 腕端验收通过真实按键、画布的可访问状态与后端结果检查交互，不调用腕端内部实现。
+def wrist_key(page, key):
+    page.locator("#main").focus()
+    page.keyboard.press(key)
+
+
+def wrist_screen(page, screen, focus=None):
+    stage = page.locator("#wrist-stage")
+    expect(stage).to_have_attribute("data-screen", screen)
+    if focus is not None:
+        expect(stage).to_have_attribute("data-focus", focus)
+
+
+def test_wrist_full_workspace_layout_and_button_navigation(app_url, browser_page):
+    page = browser_page
+    visit(page, app_url, "/wrist")
+    canvas = page.locator("#wrist-screen")
+    assert canvas.get_attribute("width") == "240"
+    assert canvas.get_attribute("height") == "280"
+    for width, height in ((1440, 1000), (1024, 768), (360, 780)):
+        page.set_viewport_size({"width": width, "height": height})
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), width
+        stage = page.locator("#wrist-stage").bounding_box()
+        content = page.locator(".content").bounding_box()
+        assert abs(stage["x"] - content["x"]) < 1
+        assert abs(stage["width"] - content["width"]) < 1
+        assert stage["height"] >= height - (108 if width == 360 else 0)
+        # resize 处理器在浏览器下一次布局时调整设备缩放，等其应用后检查屏幕边界。
+        page.wait_for_function(
+            """() => {
+              const rect = document.querySelector('#wrist-screen').getBoundingClientRect();
+              return rect.x >= 0 && rect.width > 0 && rect.right <= innerWidth;
+            }"""
+        )
+        assert page.locator(".topbar").is_hidden()
+    page.set_viewport_size({"width": 1440, "height": 1000})
+    # 点击表壳实体键进入菜单，再仅用键盘逐项打开八个腕端应用。
+    page.locator('.pusher[data-key="ok"]').click()
+    wrist_screen(page, "menu", "新建演示")
+    for screen, label in (
+        ("start", "新建演示"),
+        ("monitor", "恢复过程"),
+        ("records", "记录库"),
+        ("replays", "记录回放"),
+        ("compare", "策略比较"),
+        ("data", "数据与片段"),
+        ("system", "系统状态"),
+        ("settings", "设置"),
+    ):
+        expect(page.locator("#wrist-stage")).to_have_attribute("data-focus", label)
+        wrist_key(page, "Enter")
+        wrist_screen(page, screen)
+        assert label in canvas.get_attribute("aria-label") or screen in ("monitor", "system")
+        wrist_key(page, "Escape")
+        wrist_screen(page, "menu", label)
+        wrist_key(page, "ArrowDown")
+    assert not page.errors
+
+
+def test_wrist_settings_draft_protection_and_persistence(app_url, browser_page):
+    page = browser_page
+    visit(page, app_url, "/wrist")
+    saved = page.request.get(app_url + "/api/settings").json()
+    new_seconds = 10 if saved["chart_seconds"] == 30 else 30
+    page.locator('.map-node[data-jump="settings"]').click()
+    wrist_key(page, "ArrowDown")
+    wrist_key(page, "ArrowDown")
+    wrist_screen(page, "settings", f"电脑端图表时长：最近 {saved['chart_seconds']} 秒")
+    wrist_key(page, "Enter")
+    wrist_screen(page, "picker")
+    wrist_key(page, "ArrowDown")
+    wrist_key(page, "Enter")
+    wrist_screen(page, "settings", f"电脑端图表时长：最近 {new_seconds} 秒")
+    page.locator('.map-node[data-jump="face"]').click()
+    wrist_screen(page, "confirm", "继续编辑")
+    wrist_key(page, "Enter")
+    wrist_screen(page, "settings", f"电脑端图表时长：最近 {new_seconds} 秒")
+    # 切换电脑页面同样保护未保存的腕端草稿；拒绝后仍可继续编辑。
+    page.once("dialog", lambda dialog: dialog.dismiss())
+    page.locator('[data-nav="/monitor"]').click()
+    page.wait_for_url("**/#/wrist")
+    wrist_screen(page, "settings")
+    for _ in range(3):
+        wrist_key(page, "ArrowDown")
+    wrist_screen(page, "settings", "保存设置")
+    with page.expect_response(
+        lambda r: r.url.endswith("/api/settings") and r.request.method == "PUT"
+    ) as response:
+        wrist_key(page, "Enter")
+    assert response.value.ok
+    assert response.value.json()["chart_seconds"] == new_seconds
+    wrist_screen(page, "settings", "设置已保存")
+    visit(page, app_url, "/settings")
+    assert page.locator('[data-setting="chart_seconds"]').input_value() == str(new_seconds)
+    # 刷新后从服务读取已保存值；第二份草稿放弃后不能覆盖保存结果。
+    visit(page, app_url, "/wrist")
+    page.locator('.map-node[data-jump="settings"]').click()
+    for _ in range(2):
+        wrist_key(page, "ArrowDown")
+    wrist_screen(page, "settings", f"电脑端图表时长：最近 {new_seconds} 秒")
+    wrist_key(page, "Enter")
+    wrist_key(page, "ArrowDown")
+    wrist_key(page, "Enter")
+    page.locator('.map-node[data-jump="face"]').click()
+    wrist_screen(page, "confirm", "继续编辑")
+    wrist_key(page, "ArrowDown")
+    wrist_screen(page, "confirm", "放弃修改")
+    wrist_key(page, "Enter")
+    wrist_screen(page, "face")
+    assert page.request.get(app_url + "/api/settings").json()["chart_seconds"] == new_seconds
+    page.locator('.map-node[data-jump="settings"]').click()
+    for _ in range(2):
+        wrist_key(page, "ArrowDown")
+    wrist_screen(page, "settings", f"电脑端图表时长：最近 {new_seconds} 秒")
+    # 不重载应用：电脑端保存后，恢复保留的腕端设置栈必须同步服务新值。
+    desktop_seconds = saved["chart_seconds"]
+    page.locator('[data-nav="/settings"]').click()
+    page.locator('[data-setting="chart_seconds"]').select_option(str(desktop_seconds))
+    with page.expect_response(
+        lambda r: r.url.endswith("/api/settings") and r.request.method == "PUT"
+    ) as desktop_saved:
+        page.locator("#save-settings").click()
+    assert desktop_saved.value.json()["chart_seconds"] == desktop_seconds
+    page.locator('[data-nav="/wrist"]').click()
+    wrist_screen(page, "settings", f"电脑端图表时长：最近 {desktop_seconds} 秒")
+    # 接着只改刷新率并保存，不能把电脑端刚保存的图表时长回写成旧值。
+    new_hz = 5 if saved["ui_hz"] == 10 else 10
+    wrist_key(page, "ArrowUp")
+    wrist_key(page, "Enter")
+    wrist_key(page, "ArrowDown")
+    wrist_key(page, "Enter")
+    wrist_screen(page, "settings", f"界面刷新：每秒 {new_hz} 次")
+    for _ in range(4):
+        wrist_key(page, "ArrowDown")
+    wrist_screen(page, "settings", "保存设置")
+    with page.expect_response(
+        lambda r: r.url.endswith("/api/settings") and r.request.method == "PUT"
+    ) as wrist_saved:
+        wrist_key(page, "Enter")
+    assert wrist_saved.value.json()["chart_seconds"] == desktop_seconds
+    assert wrist_saved.value.json()["ui_hz"] == new_hz
+    wrist_screen(page, "settings", "设置已保存")
+    assert page.request.get(app_url + "/api/settings").json()["chart_seconds"] == desktop_seconds
+    assert not page.errors
+
+
+def test_wrist_buttons_complete_shared_session_and_independent_replay(app_url, browser_page):
+    page = browser_page
+    visit(page, app_url, "/wrist")
+    wrist_key(page, "Enter")
+    wrist_screen(page, "menu", "新建演示")
+    wrist_key(page, "Enter")
+    wrist_screen(page, "start")
+    for _ in range(4):
+        wrist_key(page, "ArrowDown")
+    wrist_screen(page, "start", "演示速度：1 倍")
+    wrist_key(page, "Enter")
+    for _ in range(3):
+        wrist_key(page, "ArrowDown")
+    wrist_key(page, "Enter")
+    wrist_screen(page, "start", "演示速度：10 倍")
+    wrist_key(page, "ArrowDown")
+    with page.expect_response(
+        lambda r: r.url.endswith("/api/sessions") and r.request.method == "POST"
+    ) as created:
+        wrist_key(page, "Enter")
+    sid = created.value.json()["id"]
+    wrist_screen(page, "monitor")
+    page.locator("#main").focus()
+    page.keyboard.down("Enter")
+    try:
+        wrist_screen(page, "confirm", "继续演示")
+    finally:
+        page.keyboard.up("Enter")
+    # 停止确认默认继续，防止长按误触直接终止处理。
+    wrist_key(page, "Enter")
+    wrist_screen(page, "monitor")
+    assert page.request.get(app_url + f"/api/sessions/{sid}").json()["status"] in ("PREPARING", "RECOVERING")
+    for index in range(1, 5):
+        wrist_key(page, "ArrowDown")
+        expect(page.locator("#wrist-stage")).to_have_attribute("data-page", str(index))
+    page.locator('[data-nav="/monitor"]').click()
+    page.locator("#wrist-mirror").wait_for()
+    assert page.locator("#session-controls").get_attribute("data-phase") in ("PREPARING", "RECOVERING")
+    page.locator(".mirror-link").click()
+    wrist_screen(page, "monitor")
+    expect(page.locator("#wrist-stage")).to_have_attribute("data-page", "4")
+    expect(page.locator("#stage-session")).to_have_text("最近演示：已完成", timeout=60000)
+    completed = page.request.get(app_url + f"/api/sessions/{sid}").json()
+    assert completed["engine_time_us"] == 134_000_000
+    assert len(completed["key_windows"]) == 3
+    wrist_key(page, "Escape")
+    wrist_screen(page, "menu", "新建演示")
+    wrist_key(page, "ArrowDown")
+    wrist_key(page, "ArrowDown")
+    wrist_key(page, "Enter")
+    wrist_screen(page, "records")
+    expect(page.locator("#wrist-stage")).not_to_have_attribute("data-focus", "")
+    wrist_key(page, "Enter")
+    wrist_screen(page, "record", "窗口结果")
+    wrist_key(page, "ArrowDown")
+    wrist_screen(page, "record", "回放此记录")
+    with page.expect_response(
+        lambda r: r.url.endswith("/api/replays") and r.request.method == "POST"
+    ) as opened:
+        wrist_key(page, "Enter")
+    rid = opened.value.json()["id"]
+    assert opened.value.json()["source_session_id"] == sid
+    wrist_screen(page, "replay", "播放或暂停")
+    wrist_key(page, "ArrowDown")
+    with page.expect_response(
+        lambda r: r.url.endswith(f"/api/replays/{rid}") and r.request.method == "GET"
+    ) as stepped:
+        wrist_key(page, "Enter")
+    assert stepped.value.json()["cursor_us"] == 1_000_000
+    # 离开腕端回放会关闭其独立实例，且不改动保存的会话结果。
+    with page.expect_response(
+        lambda r: r.url.endswith(f"/api/replays/{rid}/commands") and r.request.method == "POST"
+    ) as closed:
+        page.locator('[data-nav="/sessions"]').click()
+    assert closed.value.ok
+    assert page.request.get(app_url + f"/api/replays/{rid}").status == 404
+    after = page.request.get(app_url + f"/api/sessions/{sid}").json()
+    assert after["key_windows"] == completed["key_windows"]
+    assert after["status"] == "COMPLETED"
+    assert not page.errors
+
+
+def test_wrist_new_comparison_survives_delayed_initial_list(app_url, browser_page):
+    page = browser_page
+    delayed_lists = []
+    job = {"id": "wrist-race-job", "status": "RUNNING", "progress": {"total": 12, "completed": 0}}
+
+    def comparison_requests(route):
+        if route.request.method == "GET":
+            # 挂起打开页面时读取的旧列表，直到新建任务已成功。
+            delayed_lists.append(route)
+        else:
+            route.fulfill(json=job)
+
+    page.route("**/api/comparisons", comparison_requests)
+    page.route("**/api/comparisons/wrist-race-job", lambda route: route.fulfill(json=job))
+    visit(page, app_url, "/wrist")
+    page.locator('.map-node[data-jump="compare"]').click()
+    wrist_screen(page, "compare")
+    wrist_key(page, "ArrowDown")
+    wrist_key(page, "ArrowDown")
+    wrist_screen(page, "compare", "开始比较")
+    assert len(delayed_lists) == 1
+    wrist_key(page, "Enter")
+    wrist_screen(page, "compare", "停止比较")
+    # 旧列表为空；它迟到后不能清掉新任务或停止该任务的后续轮询。
+    with page.expect_response(lambda r: r.url.endswith("/api/comparisons/wrist-race-job")) as polled:
+        delayed_lists[0].fulfill(json={"items": []})
+    assert polled.value.json()["id"] == job["id"]
+    wrist_screen(page, "compare", "停止比较")
     assert not page.errors
