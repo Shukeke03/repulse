@@ -1,12 +1,27 @@
 # RePulse 复脉
 
-RePulse 是一个运动恢复监护课程项目。系统读取公开的穿戴设备历史记录，处理脉搏波和加速度数据，展示恢复过程，并计算固定时间窗口内的脉率。新建演示统一由 QEMU 中的 FreeRTOS 固件执行信号处理，浏览器界面与本机服务由 Python / FastAPI 提供。
+RePulse 是一个面向运动恢复监护的可穿戴腕表课程项目。默认首页是一块可直接操作的手表屏幕：以 240×280 固定分辨率绘制，每帧按 RGB565 色深量化，支持手机触屏点按与滑动、鼠标、四个模拟实体按键和键盘操作，为后续嵌入式腕端移植提供明确的显示与交互边界。
+
+系统读取公开数据集中的穿戴设备脉搏波和加速度历史记录，完成演示、恢复窗口计算、保存和回放。新建演示由 QEMU 中真实运行的 FreeRTOS 固件任务执行信号处理；腕端界面运行在浏览器，Python / FastAPI 提供数据读取、服务与归档。STM32 目标已可交叉编译，显示、触摸、物理按键和传感器驱动仍待上板适配与验证。
 
 ## 演示
 
-https://github.com/user-attachments/assets/462c99d1-ae6f-4af0-a102-d0aa058504e8
+[在线体验：直接操作腕端主页](https://legion-wsl.tailb5f334.ts.net:8443/)。在手表屏幕内打开菜单、新建演示、查看恢复过程和回放记录；手机可直接触屏操作，电脑可使用鼠标或键盘。
 
-[下载演示视频（约 42 秒）](docs/demo/repulse-demo.mp4)。视频使用 10 倍播放速度，原始采样时间和计算窗口不变。
+https://github.com/user-attachments/assets/5cbb9894-00e8-4ab1-a802-cfbbf0e4d19b
+
+[下载腕端演示视频（78 秒）](docs/demo/repulse-demo.mp4)。全程围绕手表操作：触屏设置 → FreeRTOS/QEMU 处理与波形 → 固件任务 → 关键窗口 → 保存与回放 → 键盘返回表盘。演示使用 S02 记录和关键窗口优先策略，按 1 倍速度处理；视频剪去等待片段，原始采样时间和计算窗口不变。[录制说明与章节](docs/demo/README.md)。
+
+## 面向真实腕表的移植路径
+
+| 部分 | 已实现 | 上板时的工作 |
+| --- | --- | --- |
+| 显示 | 240×280 布局、RGB565 色深、页面状态和图表 | 将 Canvas 绘图移植到目标图形库，接入屏幕驱动和 16 位帧缓冲 |
+| 输入 | 点按、滑动与四键操作共用页面状态和焦点逻辑 | 适配触摸坐标、物理按键、消抖与长按事件 |
+| 计算 | C 信号处理、固定窗口与质量规则在 FreeRTOS/QEMU 中运行 | 接入实际采样源，验证时序、资源占用和功耗 |
+| 板级适配 | QEMU 运行路径与可交叉编译的 STM32 目标 | 完成传感器、显示与输入驱动，并进行实机联调 |
+
+当前腕端交互已可在网页完整体验，STM32 目标已通过构建；显示、触摸、按键与传感器尚未上板验证。页面与输入设计见 [腕端界面说明](docs/WRIST_UI.md)，固件结构及构建方法见 [固件说明](docs/FIRMWARE.md)。
 
 ## 功能
 
@@ -32,7 +47,7 @@ https://github.com/user-attachments/assets/462c99d1-ae6f-4af0-a102-d0aa058504e8
 
 ## 安装与启动
 
-需要 Git、[Miniforge](https://github.com/conda-forge/miniforge)、`make`、`qemu-system-arm` 和 Arm GNU 工具链（`arm-none-eabi-*`）。QEMU 与 Arm 工具链需另行安装并加入 `PATH`，参考 [QEMU 下载页](https://www.qemu.org/download/)和 [Arm GNU 工具链](https://developer.arm.com/Tools%20and%20Software/GNU%20Toolchain)。项目已在 macOS Apple Silicon 上验证。应用使用 POSIX 文件锁，不支持原生 Windows；可尝试在 WSL2 中运行，但尚未验证。
+需要 Git、[Miniforge](https://github.com/conda-forge/miniforge)、`make`、`qemu-system-arm` 和 Arm GNU 工具链（`arm-none-eabi-*`）。QEMU 与 Arm 工具链需另行安装并加入 `PATH`，参考 [QEMU 下载页](https://www.qemu.org/download/)和 [Arm GNU 工具链](https://developer.arm.com/Tools%20and%20Software/GNU%20Toolchain)。项目已在 macOS Apple Silicon 上验证，并已在 Legion 主机的 Ubuntu 24.04 / WSL2 环境部署和验证。应用使用 POSIX 文件锁，不支持原生 Windows。
 
 ```sh
 git clone https://github.com/Shukeke03/repulse.git
@@ -58,7 +73,7 @@ python run.py
 
 ### 腕端显示预览
 
-默认首页直接显示腕端预览，工作台位于 `/#/workbench`。屏幕以 240×280 像素绘制，每帧量化为 RGB565 颜色；四个模拟实体按键分别为返回、上、下、确认，手表旁同时标注键盘 `Esc`、`↑`、`↓`、`Enter` 的对应操作。确认键打开菜单或执行选中项，上下键移动焦点或切页；返回键退回上一级，长按约 0.8 秒回到表盘。在腕端的恢复过程页长按确认约 1.2 秒，会打开停止演示的确认页。屏幕保持常亮，无操作时不自动调暗。
+默认首页直接显示腕端预览，工作台位于 `/#/workbench`。屏幕以 240×280 像素绘制，每帧按 RGB565 色深量化；四个模拟实体按键分别为返回、上、下、确认，手表旁同时标注键盘 `Esc`、`↑`、`↓`、`Enter` 的对应操作。确认键打开菜单或执行选中项，上下键移动焦点或切页；返回键退回上一级，长按约 0.8 秒回到表盘。在腕端的恢复过程页长按确认约 1.2 秒，会打开停止演示的确认页。屏幕保持常亮，无操作时不自动调暗。
 
 屏幕内的菜单、选项和按钮均可直接点按；上下滑动或鼠标滚轮浏览长列表，点左上角箭头或右划返回。恢复过程与系统状态底部提供切页按钮，回放支持点按进度条定位。
 

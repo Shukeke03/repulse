@@ -222,7 +222,9 @@ docs/
 ├── dataset-protocol-aerobic-v1.png 作者协议图，用于核对原记录阶段事件
 ├── dataset-protocol-provenance.json 协议图的来源、Notebook与附件哈希
 ├── demo/
-│   └── repulse-demo.mp4         真实系统主要功能的录屏演示，约42秒
+│   ├── README.md                腕端演示的章节、录制条件与验证边界
+│   ├── repulse-demo.mp4         腕端主页交互录屏，FreeRTOS/QEMU处理与回放，78秒
+│   └── repulse-demo-poster.png  新版腕端演示预览图
 ├── screenshots/                当前真实数据版本的运行截图
 │   ├── 01-workbench.png         工作台
 │   ├── 02-monitor.png           恢复过程
