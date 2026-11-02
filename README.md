@@ -8,7 +8,7 @@ RePulse 是一个面向运动恢复监护的可穿戴腕表课程项目。默认
 
 [在线体验：直接操作腕端主页](https://legion-wsl.tailb5f334.ts.net:8443/)。在手表屏幕内打开菜单、新建演示、查看恢复过程和回放记录；手机可直接触屏操作，电脑可使用鼠标或键盘。
 
-https://github.com/user-attachments/assets/5cbb9894-00e8-4ab1-a802-cfbbf0e4d19b
+https://github.com/user-attachments/assets/faf840e1-f300-498f-b563-bc6dfeb435d6
 
 [下载腕端演示视频（78 秒）](docs/demo/repulse-demo.mp4)。全程围绕手表操作：触屏设置 → FreeRTOS/QEMU 处理与波形 → 固件任务 → 关键窗口 → 保存与回放 → 键盘返回表盘。演示使用 S02 记录和关键窗口优先策略，按 1 倍速度处理；视频剪去等待片段，原始采样时间和计算窗口不变。[录制说明与章节](docs/demo/README.md)。
 
