@@ -82,7 +82,7 @@ def write_observations(path: Path, source: DatasetSource, config: dict) -> dict:
         accel = row.get("accel")
         gap = bool(row.get("gap") or ppg is None or not math.isfinite(float(ppg)))
         if accel is None or not math.isfinite(float(accel)):
-            raise ValueError("当前固件需要完整运动观测；这条记录的缺失运动数据可用Python处理")
+            raise ValueError("当前固件需要完整运动观测；这条记录存在缺失运动数据，无法运行演示")
         payload += INPUT_ROW.pack(
             row["time_us"],
             index,

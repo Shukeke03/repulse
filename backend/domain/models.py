@@ -34,7 +34,7 @@ class SessionConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(default="有氧运动恢复记录", min_length=1, max_length=100)
     origin: Literal["PUBLIC_DATA"] = "PUBLIC_DATA"
-    execution_mode: Literal["PYTHON", "FREERTOS_QEMU", "STM32_DEVICE"] = "PYTHON"
+    execution_mode: Literal["FREERTOS_QEMU"] = "FREERTOS_QEMU"
     dataset_id: str = Field(default=DEFAULT_DATASET, min_length=1, max_length=100)
     strategy: Literal["continuous", "critical", "periodic"] = "continuous"
     phase: int = Field(default=0, ge=0, le=19)

@@ -21,6 +21,7 @@ const paths = {
   pause: '<path d="M8 4v16m8-16v16"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/>',
   watch: '<rect x="6" y="6" width="12" height="12" rx="3"/><path d="M9 6l.7-3h4.6l.7 3M9 18l.7 3h4.6l.7-3M18 10.5h1.5M9.5 12h1.5l1-2 1.5 4 1-2h1"/>',
+  keyboard: '<rect x="2" y="5" width="20" height="14" rx="3"/><path d="M6 9h1m4 0h1m4 0h1M6 12h1m4 0h1m4 0h1M7 16h10"/>',
 };
 const icon = name => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.info}</svg>`;
 const esc = value => String(value ?? '').replace(/[&<>"']/g, x => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[x]));
@@ -54,7 +55,7 @@ const reasonsMap = {
 const explain = value => (Array.isArray(value) ? value : value ? [value] : []).map(x => typeof x === 'string' ? reasonsMap[x] || '数据未通过质量检查' : x.message || '依赖窗口不可用').join('；');
 const localDate = value => value ? new Date(value).toLocaleString('zh-CN', {year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'}) : '—';
 const fmtBytes = value => typeof value === 'number' ? value >= 1e9 ? `${(value/1e9).toFixed(1)} GB` : value >= 1e6 ? `${(value/1e6).toFixed(2)} MB` : `${Math.round(value/1000)} KB` : '—';
-const titles = {'/':'工作台', '/monitor':'恢复过程', '/wrist':'腕端显示预览', '/sessions':'记录库', '/replay':'记录回放', '/compare':'策略比较', '/lab':'数据与片段', '/system':'系统状态', '/settings':'设置'};
+const titles = {'/':'腕端显示预览', '/workbench':'工作台', '/monitor':'恢复过程', '/sessions':'记录库', '/replay':'记录回放', '/compare':'策略比较', '/lab':'数据与片段', '/system':'系统状态', '/settings':'设置'};
 // 仅保存当前视图状态；演示配置和最终结果以服务端记录为准。
 const state = {
   bootstrap:null, live:null, connected:false, route:'', token:0, cleanups:[],
@@ -75,7 +76,10 @@ const wrist = createWrist({
 
 const on = (selector, event, callback) => document.querySelector(selector)?.addEventListener(event, callback);
 const main = () => document.querySelector('#main');
-const currentPath = () => (location.hash.slice(1) || '/').split('?')[0].replace('/datasets', '/lab');
+const currentPath = () => {
+  const path = (location.hash.slice(1) || '/').split('?')[0].replace('/datasets', '/lab');
+  return path === '/wrist' ? '/' : path;
+};
 const isCurrent = token => token === state.token;
 const badge = (text, color = '') => `<span class="badge ${color}">${esc(text)}</span>`;
 const stageBadge = record => badge(stageNames[phaseOf(record)] || '未知状态', ['COMPLETED'].includes(phaseOf(record)) ? 'green' : ['PREPARING','RECOVERING','RUNNING'].includes(phaseOf(record)) ? 'blue' : ['FAILED','INTERRUPTED'].includes(phaseOf(record)) ? 'red' : '');
@@ -105,7 +109,7 @@ async function run(button, action) {
 function navigate(path) {location.hash = `#${path}`;}
 // 创建固定导航、连接提示和页面容器，各路由只更新主内容区域。
 function shell() {
-  const nav = [['/','home'], ['/monitor','pulse'], ['/wrist','watch'], ['/sessions','archive'], ['/replay','replay'], ['/compare','compare'], ['/lab','data'], ['/system','system'], ['/settings','settings']];
+  const nav = [['/','watch'], ['/workbench','home'], ['/monitor','pulse'], ['/sessions','archive'], ['/replay','replay'], ['/compare','compare'], ['/lab','data'], ['/system','system'], ['/settings','settings']];
   document.querySelector('#app').innerHTML = `<aside class="sidebar"><a class="brand" href="#/"><span class="brand-mark">${icon('pulse')}</span><span><strong>RePulse</strong><small>复脉 · 运动恢复监护</small></span></a><nav aria-label="主要页面">${nav.map(([path,name]) => `<a class="nav-item" href="#${path}" data-nav="${path}">${icon(name)}<span>${titles[path]}</span></a>`).join('')}</nav><div class="sidebar-foot">数据保存在本机项目目录<br>界面按原始记录时间推进</div></aside><div class="content"><header class="topbar"><div class="breadcrumb"><a href="#/">RePulse 复脉</a><span>/</span><strong id="breadcrumb-title">工作台</strong></div><div class="top-right"><span id="global-source">公开数据演示</span><span id="connection-indicator">正在连接</span></div></header><div class="connection-banner" id="connection-banner" role="status">与本地服务的连接已断开，正在重连。当前读数暂不可用；后台处理由服务继续执行。</div><main class="main" id="main" tabindex="-1"></main></div>`;
 }
 function connection(connected) {
@@ -175,7 +179,7 @@ async function home(token) {
   if (!isCurrent(token)) return;
   const datasets = dataList(), running = active();
   main().innerHTML = `${heading('运动恢复演示','读取本地保存的公开人体记录，查看脉率、信号质量和恢复窗口。', running ? '<a class="btn primary" href="#/monitor">继续查看恢复过程</a>' : '')}
-    ${datasets.length ? `<div class="grid two"><section class="panel"><div class="panel-header"><h2>新建演示</h2>${badge('真实记录','green')}</div><div class="panel-body"><form id="create-form"><div class="form-grid"><div class="field full"><label for="session-dataset">数据记录</label><select id="session-dataset">${datasets.map(d => `<option value="${esc(d.id)}">${esc(datasetName(d))}</option>`).join('')}</select></div><div class="field"><label for="session-name">演示名称（可选）</label><input id="session-name" maxlength="100" placeholder="留空使用记录名称"></div><div class="field"><label for="session-source">处理环境</label><select id="session-source"><option value="PYTHON">Python · 本机处理</option><option value="FREERTOS_QEMU" ${state.bootstrap?.capabilities?.qemu ? '' : 'disabled'}>FreeRTOS / QEMU${state.bootstrap?.capabilities?.qemu ? '' : ' · 尚未就绪'}</option></select><small id="source-hint">信号处理在本机Python中执行。</small></div><div class="field"><label for="session-speed">演示速度</label><select id="session-speed">${[1,2,5,10].map(v => `<option value="${v}">${v}倍${v===1?'（按记录时长）':''}</option>`).join('')}</select><small>只改变推进速度，不改变采样率或计算窗口。</small></div><div class="field"><label for="session-phase">周期读取起始偏移（秒）</label><select id="session-phase">${[0,5,10,15].map(v => `<option value="${v}">${v}秒</option>`).join('')}</select><small id="phase-help">仅周期读取使用，表示相对恢复起点的启动偏移。</small></div><div class="field full"><label>读取策略</label><div class="choices">${Object.entries(strategyNames).map(([v,label]) => `<button type="button" data-strategy="${v}" class="choice"><strong>${label}</strong><small>${v==='continuous'?'恢复段完整读取64 Hz波形':v==='critical'?'优先保留起点、60秒和120秒窗口':'每20秒读取一段，总时长约70秒，与关键窗口方案接近'}</small></button>`).join('')}</div></div></div></form></div><div class="card-footer"><span class="notice-label">${running ? '已有演示运行中，请先结束当前演示。' : '起点由原始阶段标记确定，会自动进入恢复段。'}</span><button class="btn primary" id="start-session" ${running?'disabled':''}>${icon('play')}开始演示</button></div></section><div class="stack">${panel('所选记录', '<div id="selected-dataset"></div>', '<a href="#/lab" id="selected-dataset-link" class="small">查看数据详情</a>')}${panel('处理环境', `<div class="env-item"><span>Python</span>${badge('已就绪','green')}</div><div class="env-item"><span>FreeRTOS / QEMU</span>${badge(state.bootstrap?.capabilities?.qemu?'已就绪':'尚未就绪',state.bootstrap?.capabilities?.qemu?'green':'')}</div><p class="panel-note">两种环境读取相同的真实文件。QEMU模式由固件中的任务完成处理；没有连接实时腕带。</p>`, '<a href="#/system" class="small">查看系统状态</a>')}</div></div>` : missingData()}
+    ${datasets.length ? `<div class="grid two"><section class="panel"><div class="panel-header"><h2>新建演示</h2>${badge('真实记录','green')}</div><div class="panel-body"><form id="create-form"><div class="form-grid"><div class="field full"><label for="session-dataset">数据记录</label><select id="session-dataset">${datasets.map(d => `<option value="${esc(d.id)}">${esc(datasetName(d))}</option>`).join('')}</select></div><div class="field"><label for="session-name">演示名称（可选）</label><input id="session-name" maxlength="100" placeholder="留空使用记录名称"></div><div class="field"><label for="session-source">处理环境</label><input id="session-source" value="FreeRTOS / QEMU" readonly><small id="source-hint">真实样本传入 FreeRTOS，由固件任务计算窗口结果。</small></div><div class="field"><label for="session-speed">演示速度</label><select id="session-speed">${[1,2,5,10].map(v => `<option value="${v}">${v}倍${v===1?'（按记录时长）':''}</option>`).join('')}</select><small>只改变推进速度，不改变采样率或计算窗口。</small></div><div class="field"><label for="session-phase">周期读取起始偏移（秒）</label><select id="session-phase">${[0,5,10,15].map(v => `<option value="${v}">${v}秒</option>`).join('')}</select><small id="phase-help">仅周期读取使用，表示相对恢复起点的启动偏移。</small></div><div class="field full"><label>读取策略</label><div class="choices">${Object.entries(strategyNames).map(([v,label]) => `<button type="button" data-strategy="${v}" class="choice"><strong>${label}</strong><small>${v==='continuous'?'恢复段完整读取64 Hz波形':v==='critical'?'优先保留起点、60秒和120秒窗口':'每20秒读取一段，总时长约70秒，与关键窗口方案接近'}</small></button>`).join('')}</div></div></div></form></div><div class="card-footer"><span class="notice-label">${running ? '已有演示运行中，请先结束当前演示。' : state.bootstrap?.capabilities?.qemu ? '起点由原始阶段标记确定，会自动进入恢复段。' : 'FreeRTOS / QEMU 尚未就绪，请检查固件和本地数据。'}</span><button class="btn primary" id="start-session" ${running||!state.bootstrap?.capabilities?.qemu?'disabled':''}>${icon('play')}开始演示</button></div></section><div class="stack">${panel('所选记录', '<div id="selected-dataset"></div>', '<a href="#/lab" id="selected-dataset-link" class="small">查看数据详情</a>')}${panel('处理环境', `<div class="env-item"><span>FreeRTOS / QEMU</span>${badge(state.bootstrap?.capabilities?.qemu?'已就绪':'尚未就绪',state.bootstrap?.capabilities?.qemu?'green':'')}</div><p class="panel-note">信号处理由 QEMU 中的 FreeRTOS 任务完成；没有连接实时腕带。</p>`, '<a href="#/system" class="small">查看系统状态</a>')}</div></div>` : missingData()}
     <section class="panel spacer"><div class="panel-header"><h2>最近处理记录</h2><a href="#/sessions" class="small">查看记录库</a></div>${items(records).length ? sessionTable(items(records),false) : empty('还没有处理记录','开始一次演示后，可以在这里查看结果、回放或导出数据。')}</section>${foot()}`;
   on('#reload-datasets','click', e => run(e.currentTarget, async () => {await bootstrap(); await home(token);}));
   if (!datasets.length) return;
@@ -186,22 +190,21 @@ async function home(token) {
     const selected = datasets.find(d => d.id === document.querySelector('#session-dataset').value) || datasets[0];
     document.querySelector('#selected-dataset-link').href = `#/lab?dataset_id=${encodeURIComponent(selected.id)}`;
     document.querySelector('#selected-dataset').innerHTML = metadataRows(selected)+`<div class="info-strip">${icon('info')}<span>这是已录制的数据，演示起点自动对齐原始事件标记。当前片段为主动恢复，仍有无阻力踩踏活动。</span></div>`;
-    const qemu = document.querySelector('#session-source').value === 'FREERTOS_QEMU';
     const allowed = state.bootstrap?.capabilities?.qemu_limits?.strategies || ['continuous','critical','periodic'];
-    document.querySelectorAll('[data-strategy]').forEach(el => {el.disabled = qemu && !allowed.includes(el.dataset.strategy);});
-    if (qemu && !allowed.includes(strategy)) strategy = allowed[0] || 'continuous';
+    document.querySelectorAll('[data-strategy]').forEach(el => {el.disabled = !allowed.includes(el.dataset.strategy);});
+    if (!allowed.includes(strategy)) strategy = allowed[0] || 'continuous';
     document.querySelectorAll('[data-strategy]').forEach(el => el.classList.toggle('selected', el.dataset.strategy===strategy));
     document.querySelector('#session-phase').disabled = strategy !== 'periodic';
-    document.querySelector('#source-hint').textContent = qemu ? '真实样本传入FreeRTOS，由固件计算窗口结果。' : '信号处理在本机Python中执行。';
+    document.querySelector('#source-hint').textContent = state.bootstrap?.capabilities?.qemu ? '真实样本传入 FreeRTOS，由固件任务计算窗口结果。' : state.bootstrap?.capabilities?.qemu_reason || '请先构建 QEMU 固件并准备本地数据。';
     const speeds = state.bootstrap?.capabilities?.qemu_limits?.speeds || [1,2,5,10];
-    for (const option of document.querySelector('#session-speed').options) option.disabled = qemu && !speeds.includes(Number(option.value));
+    for (const option of document.querySelector('#session-speed').options) option.disabled = !speeds.includes(Number(option.value));
     if (document.querySelector('#session-speed').selectedOptions[0].disabled) document.querySelector('#session-speed').value = String(speeds[0] || 1);
   }
   document.querySelectorAll('[data-strategy]').forEach(el => el.addEventListener('click', () => {strategy=el.dataset.strategy; updateSelection();}));
-  on('#session-dataset','change',updateSelection); on('#session-source','change',updateSelection);
+  on('#session-dataset','change',updateSelection);
   on('#start-session','click', e => run(e.currentTarget, async () => {
     const selected = datasets.find(d => d.id===document.querySelector('#session-dataset').value);
-    await startSession({name:document.querySelector('#session-name').value.trim() || datasetName(selected),origin:'PUBLIC_DATA',dataset_id:selected.id,execution_mode:document.querySelector('#session-source').value,strategy,phase:Number(document.querySelector('#session-phase').value),speed:Number(document.querySelector('#session-speed').value)});
+    await startSession({name:document.querySelector('#session-name').value.trim() || datasetName(selected),origin:'PUBLIC_DATA',dataset_id:selected.id,execution_mode:'FREERTOS_QEMU',strategy,phase:Number(document.querySelector('#session-phase').value),speed:Number(document.querySelector('#session-speed').value)});
     navigate('/monitor');
   }));
   updateSelection(); bindTable();
@@ -252,12 +255,12 @@ function updateMonitor(rebuild=false) {
   const container=document.querySelector('#monitor-content'); if (!container) return;
   const current=state.live;
   for(const id of ['#freeze-view','#export-chart']){const button=document.querySelector(id);if(button)button.disabled=!current;}
-  if (!current) {container.innerHTML=empty('当前没有演示','在工作台选择一条真实记录并开始演示。','<a class="btn primary" href="#/">前往工作台</a>');delete container.dataset.session;if(wrist.target)wrist.setTarget(null);return;}
+  if (!current) {container.innerHTML=empty('当前没有演示','在工作台选择一条真实记录并开始演示。','<a class="btn primary" href="#/workbench">前往工作台</a>');delete container.dataset.session;if(wrist.target)wrist.setTarget(null);return;}
   const record=state.frozen&&state.frozenSnapshot?state.frozenSnapshot:current;
   const meta=metaOf(record), result=record.latest_result||{}, phase=phaseOf(record);
   if (rebuild || container.dataset.session!==idOf(record)) {
     container.dataset.session=idOf(record);
-    container.innerHTML=`<div class="active-banner"><span id="monitor-origin"></span><span id="monitor-clock"></span></div><div id="frozen-notice" class="info-strip warning hidden" role="status"></div><div class="monitor-layout"><div class="stack"><div class="grid three" id="monitor-metrics"></div><section class="panel"><div class="chart-head"><h2>脉搏波 <small>64 Hz · 设备相对单位</small></h2><div class="segmented" aria-label="波形显示"><button type="button" data-signal="ppg">原始</button><button type="button" data-signal="filtered">滤波后</button></div></div><canvas id="ppg-chart" class="chart-canvas" aria-label="脉搏波图，横轴为相对恢复起点的秒数"></canvas><div class="chart-caption"><span>缺口和策略未读取区间保持断线</span><div class="segmented" aria-label="波形显示时长"><button data-seconds="10">最近10秒</button><button data-seconds="30">最近30秒</button></div></div><div class="panel-separator"></div><div class="chart-head"><h2>运动变化量 <small>g</small></h2></div><canvas id="accel-chart" class="chart-canvas accel" aria-label="运动变化量图"></canvas><p class="chart-caption">g为重力加速度单位。此曲线来自原始三轴加速度的变化量，不是运动强度评分。</p></section><section class="panel"><div class="panel-header"><h2>恢复窗口</h2><span id="monitor-strategy" class="small"></span></div><div class="panel-body"><div id="monitor-timeline"></div><div class="grid three" id="monitor-windows"></div><div id="monitor-deltas"></div></div></section></div><aside class="stack"><section class="panel"><div class="wrist-panel"><div class="wrist-panel-head"><h2>腕端同步显示</h2><a class="small" href="#/wrist">打开腕端预览</a></div><a class="mirror-link" href="#/wrist" aria-label="打开腕端显示预览，用四个按键操作腕端界面"><canvas id="wrist-mirror" class="wrist-mirror" width="${PANEL.width}" height="${PANEL.height}" aria-hidden="true"></canvas></a><p class="wrist-help">与腕端屏幕同步显示。按键操作和全部腕端功能见“腕端显示预览”；此预览不表示已连接腕表。</p></div><div id="session-controls" class="session-controls"></div></section><section class="panel"><div class="panel-header"><h2>最近事件</h2></div><div class="panel-body"><ul id="monitor-events" class="event-list"></ul></div></section></aside></div>`;
+    container.innerHTML=`<div class="active-banner"><span id="monitor-origin"></span><span id="monitor-clock"></span></div><div id="frozen-notice" class="info-strip warning hidden" role="status"></div><div class="monitor-layout"><div class="stack"><div class="grid three" id="monitor-metrics"></div><section class="panel"><div class="chart-head"><h2>脉搏波 <small>64 Hz · 设备相对单位</small></h2><div class="segmented" aria-label="波形显示"><button type="button" data-signal="ppg">原始</button><button type="button" data-signal="filtered">滤波后</button></div></div><canvas id="ppg-chart" class="chart-canvas" aria-label="脉搏波图，横轴为相对恢复起点的秒数"></canvas><div class="chart-caption"><span>缺口和策略未读取区间保持断线</span><div class="segmented" aria-label="波形显示时长"><button data-seconds="10">最近10秒</button><button data-seconds="30">最近30秒</button></div></div><div class="panel-separator"></div><div class="chart-head"><h2>运动变化量 <small>g</small></h2></div><canvas id="accel-chart" class="chart-canvas accel" aria-label="运动变化量图"></canvas><p class="chart-caption">g为重力加速度单位。此曲线来自原始三轴加速度的变化量，不是运动强度评分。</p></section><section class="panel"><div class="panel-header"><h2>恢复窗口</h2><span id="monitor-strategy" class="small"></span></div><div class="panel-body"><div id="monitor-timeline"></div><div class="grid three" id="monitor-windows"></div><div id="monitor-deltas"></div></div></section></div><aside class="stack"><section class="panel"><div class="wrist-panel"><div class="wrist-panel-head"><h2>腕端同步显示</h2><a class="small" href="#/">打开腕端预览</a></div><a class="mirror-link" href="#/" aria-label="打开腕端显示预览，用四个按键操作腕端界面"><canvas id="wrist-mirror" class="wrist-mirror" width="${PANEL.width}" height="${PANEL.height}" aria-hidden="true"></canvas></a><p class="wrist-help">与腕端屏幕同步显示。按键操作和全部腕端功能见“腕端显示预览”；此预览不表示已连接腕表。</p></div><div id="session-controls" class="session-controls"></div></section><section class="panel"><div class="panel-header"><h2>最近事件</h2></div><div class="panel-body"><ul id="monitor-events" class="event-list"></ul></div></section></aside></div>`;
     document.querySelectorAll('[data-signal]').forEach(el=>el.addEventListener('click',()=>{state.signal=el.dataset.signal;updateMonitor();}));
     document.querySelectorAll('[data-seconds]').forEach(el=>el.addEventListener('click',()=>{state.seconds=Number(el.dataset.seconds);updateMonitor();}));
     wrist.setTarget(document.querySelector('#wrist-mirror'));
@@ -285,7 +288,7 @@ function updateMonitor(rebuild=false) {
   const controls=document.querySelector('#session-controls'), nowPhase=phaseOf(current);
   if (controls.dataset.phase!==nowPhase) {
     controls.dataset.phase=nowPhase;
-    controls.innerHTML=finished(current)?`${stageBadge(current)}${btn('查看保存结果','view-result','primary')}<a class="btn" href="#/">新建演示</a>`:`<p class="panel-note">${nowPhase==='PREPARING'?'原记录起点位于片段第10秒，将自动进入恢复段。':'恢复段处理到124秒后自动保存。'}</p>${btn('停止演示','cancel-session','danger')}`;
+    controls.innerHTML=finished(current)?`${stageBadge(current)}${btn('查看保存结果','view-result','primary')}<a class="btn" href="#/workbench">新建演示</a>`:`<p class="panel-note">${nowPhase==='PREPARING'?'原记录起点位于片段第10秒，将自动进入恢复段。':'恢复段处理到124秒后自动保存。'}</p>${btn('停止演示','cancel-session','danger')}`;
     bindSessionControls();
   }
   document.querySelector('#monitor-events').innerHTML=(record.events||[]).slice(-10).reverse().map(e=>`<li><span class="mono">${number((e.time_us-t0Of(record))/1e6,1)}秒</span><span>${esc(e.message || eventName(e.type))}</span></li>`).join('') || '<li>尚无处理事件。</li>';
@@ -305,12 +308,16 @@ function wristView() {
       <nav class="screen-map" aria-label="腕端页面结构"><h2>页面结构</h2><p>当前页面随按键操作高亮。点击可直接跳转，实际腕表只用按键切换。</p><div class="map-tree">${tree(SCREEN_MAP)}</div></nav>
       <div class="device-area" id="device-area">
         <div class="watch" id="watch"><div class="strap top" aria-hidden="true"></div><div class="strap bottom" aria-hidden="true"></div><div class="case"><div class="glass"><canvas id="wrist-screen" width="${PANEL.width}" height="${PANEL.height}" role="img" aria-label="腕端屏幕"></canvas></div></div>${pusher('back','left','upper')}${pusher('up','left','lower')}${pusher('ok','right','upper')}${pusher('down','right','lower')}</div>
-        <div class="key-bar" aria-label="腕端按键">${[['back','返回'],['ok','确认'],['up','上'],['down','下']].map(([key,text]) => `<button type="button" class="btn" data-key="${key}">${text}</button>`).join('')}</div>
+        <section class="keyboard-guide" id="keyboard-guide" aria-labelledby="keyboard-title">
+          <div class="keyboard-guide-title">${icon('keyboard')}<h2 id="keyboard-title">用键盘，直接操控手表</h2></div>
+          <p id="keyboard-help">无需点击表盘，按 <strong>Enter</strong> 打开菜单。下方按键也可点击。</p>
+          <div class="keyboard-keys" aria-label="腕端按键">${[['back','Esc','返回'],['up','↑','上一项'],['down','↓','下一项'],['ok','Enter','确认']].map(([key,kbd,text]) => `<button type="button" data-key="${key}" aria-label="${kbd}：${text}"><kbd>${kbd}</kbd><span>${text}</span></button>`).join('')}</div>
+        </section>
         <p class="sr-only" id="wrist-live" aria-live="polite"></p>
       </div>
       <aside class="device-notes">
         <section><h2>按键</h2><dl class="key-legend">${keys.map(([,text,kbd,help]) => `<dt>${text}</dt><dd><kbd>${kbd}</kbd>${help}</dd>`).join('')}</dl></section>
-        <section><h2>显示与输入</h2><dl class="spec-list"><dt>屏幕</dt><dd>1.69 英寸 IPS，${PANEL.width}×${PANEL.height} 像素，圆角显示区</dd><dt>颜色</dt><dd>RGB565 16 位，每帧量化后输出</dd><dt>刷新</dt><dd>数据按设置刷新，动画不超过 ${PANEL.fps} 帧/秒</dd><dt>输入</dt><dd>4 个实体按键，区分短按、长按和按住</dd><dt>提示</dt><dd>窗口结果到达时亮屏，并模拟振动</dd></dl></section>
+        <section><h2>显示与输入</h2><dl class="spec-list"><dt>屏幕</dt><dd>1.69 英寸 IPS，${PANEL.width}×${PANEL.height} 像素，圆角显示区</dd><dt>颜色</dt><dd>RGB565 16 位，每帧量化后输出</dd><dt>刷新</dt><dd>数据按设置刷新，动画不超过 ${PANEL.fps} 帧/秒</dd><dt>输入</dt><dd>4 个实体按键，区分短按、长按和按住</dd><dt>提示</dt><dd>屏幕常亮；窗口结果到达时提示并模拟振动</dd></dl></section>
         <section><h2>按键记录</h2><ol class="input-log" id="input-log"><li class="empty-log">按下任意按键后，这里显示操作结果。</li></ol></section>
         <p class="stage-note">画面在浏览器中模拟，未连接实体腕表，数据来自本机服务。显示驱动与按键尚未上板验证。</p>
       </aside>
@@ -321,7 +328,7 @@ function wristView() {
     const area = document.querySelector('#device-area'), watch = document.querySelector('#watch');
     if (!area || !watch) return;
     const rect = area.getBoundingClientRect(), mobile = matchMedia('(max-width: 767px)').matches, dpr = devicePixelRatio || 1;
-    const raw = Math.min((rect.width - 24) / 312, mobile ? Infinity : (rect.height - 48) / 336);
+    const raw = Math.min((rect.width - 24) / 312, mobile ? Infinity : (rect.height - 160) / 400);
     const snapped = Math.floor(raw * dpr) / dpr, scale = snapped >= raw * .85 ? snapped : Math.max(.5, raw);
     watch.style.setProperty('--s', scale);
     watch.classList.toggle('smooth', Math.abs(scale * dpr - Math.round(scale * dpr)) > .01);
@@ -344,6 +351,8 @@ function wristView() {
   wrist.start({target:canvas, root:stage, interactive:true, onChange:current, onInput:inputs});
   if (wrist.log.length) inputs(wrist.log);
   fit(); status();
+  // 从导航进入后也立即接收腕端快捷键，避免焦点停在链接上使 Enter 再次触发导航。
+  main().focus({preventScroll:true});
   const timer = setInterval(status, 500);
   window.addEventListener('resize', fit);
   state.cleanups.push(() => {wrist.stop(); clearInterval(timer); window.removeEventListener('resize', fit);});
@@ -358,7 +367,7 @@ function bindTable() {
 }
 // 记录库：查询公开数据演示，提供筛选、分页、批量删除和详情入口。
 async function sessions(token) {
-  main().innerHTML=`${heading('记录库','保存每次处理的配置、窗口结果、波形和事件。','<a class="btn primary" href="#/">新建演示</a>')}<section class="panel"><div class="panel-header"><h2>真实数据处理记录</h2><span id="record-count" class="badge">正在读取</span></div><form class="filterbar" id="session-search"><label class="sr-only" for="search-text">搜索名称或备注</label><input id="search-text" placeholder="搜索名称或备注"><label class="sr-only" for="status-filter">处理状态</label><select id="status-filter"><option value="">全部状态</option>${['COMPLETED','CANCELLED','INTERRUPTED','FAILED','PREPARING','RECOVERING'].map(v=>`<option value="${v}">${stageNames[v]}</option>`).join('')}</select><label class="sr-only" for="tag-filter">按标签筛选</label><input id="tag-filter" placeholder="标签"><button class="btn small" type="submit">筛选</button><button class="btn small" type="button" id="clear-filters">清除筛选</button><button class="btn small danger" type="button" id="delete-selected">删除所选</button></form><div id="sessions-table"></div><div class="pagination"><span id="pagination-label"></span><div class="button-row">${btn('上一页','prev-page','small')}${btn('下一页','next-page','small')}</div></div></section>${foot()}`;
+  main().innerHTML=`${heading('记录库','保存每次处理的配置、窗口结果、波形和事件。','<a class="btn primary" href="#/workbench">新建演示</a>')}<section class="panel"><div class="panel-header"><h2>真实数据处理记录</h2><span id="record-count" class="badge">正在读取</span></div><form class="filterbar" id="session-search"><label class="sr-only" for="search-text">搜索名称或备注</label><input id="search-text" placeholder="搜索名称或备注"><label class="sr-only" for="status-filter">处理状态</label><select id="status-filter"><option value="">全部状态</option>${['COMPLETED','CANCELLED','INTERRUPTED','FAILED','PREPARING','RECOVERING'].map(v=>`<option value="${v}">${stageNames[v]}</option>`).join('')}</select><label class="sr-only" for="tag-filter">按标签筛选</label><input id="tag-filter" placeholder="标签"><button class="btn small" type="submit">筛选</button><button class="btn small" type="button" id="clear-filters">清除筛选</button><button class="btn small danger" type="button" id="delete-selected">删除所选</button></form><div id="sessions-table"></div><div class="pagination"><span id="pagination-label"></span><div class="button-row">${btn('上一页','prev-page','small')}${btn('下一页','next-page','small')}</div></div></section>${foot()}`;
   let page=1,total=0;
   async function load() {
     const query=new URLSearchParams({origin:'PUBLIC_DATA',page:String(page),page_size:'20'});
@@ -503,7 +512,7 @@ async function replay(recordId,token) {
     const response=await api('/sessions?origin=PUBLIC_DATA&page_size=100');
     if(!isCurrent(token))return;
     const records=items(response).filter(finished);
-    main().innerHTML=`${heading('记录回放','选择一条已保存的处理记录，检查原始波形及重新计算的窗口结果。')}${records.length?panel('选择处理记录',`<div class="field"><label for="replay-record">已完成或已停止的记录</label><select id="replay-record">${records.map(r=>`<option value="${esc(idOf(r))}">${esc(r.name)} · ${localDate(r.created_at_utc)}</option>`).join('')}</select></div><div class="button-row spacer">${btn('打开回放','open-replay','primary','play')}</div>`):empty('还没有可回放的记录','完成或停止一次演示后，记录会出现在这里。','<a class="btn primary" href="#/">前往工作台</a>')}${foot()}`;
+    main().innerHTML=`${heading('记录回放','选择一条已保存的处理记录，检查原始波形及重新计算的窗口结果。')}${records.length?panel('选择处理记录',`<div class="field"><label for="replay-record">已完成或已停止的记录</label><select id="replay-record">${records.map(r=>`<option value="${esc(idOf(r))}">${esc(r.name)} · ${localDate(r.created_at_utc)}</option>`).join('')}</select></div><div class="button-row spacer">${btn('打开回放','open-replay','primary','play')}</div>`):empty('还没有可回放的记录','完成或停止一次演示后，记录会出现在这里。','<a class="btn primary" href="#/workbench">前往工作台</a>')}${foot()}`;
     on('#open-replay','click',()=>navigate(`/replay/${document.querySelector('#replay-record').value}`));return;
   }
   const created=await api('/replays',{method:'POST',body:{source_session_id:recordId}});
@@ -656,12 +665,12 @@ async function dataPage(token) {
 async function system(token) {
   main().innerHTML=`${heading('系统状态','查看服务、数据文件与当前处理环境。',btn('重新检查','refresh-system','','system')+btn('下载诊断JSON','export-diagnostics','','download'))}<div class="grid three" id="system-summary"></div><section class="panel spacer"><div class="panel-header"><h2>任务状态</h2><span class="small" id="system-task-note"></span></div><div id="system-tasks"></div></section><section class="panel spacer"><div class="panel-header"><h2>最近处理事件</h2>${btn('冻结日志显示','pause-logs','small')}</div><div class="panel-body"><div id="system-logs" class="log-list"></div></div></section><details class="panel spacer advanced"><summary>查看数据通道、版本和原始诊断</summary><div class="panel-body" id="system-advanced"></div></details>${foot()}`;
   let latest=null,paused=false;
-  const taskName={Acquisition:'采集读取',DSP:'信号处理',Session:'状态控制',Feedback:'提示',UI:'屏幕',System:'诊断',SessionEngine:'Python会话处理'};
+  const taskName={Acquisition:'采集读取',DSP:'信号处理',Session:'状态控制',Feedback:'提示',UI:'屏幕',System:'诊断',SessionEngine:'历史会话处理'};
   const taskState={0:'正在执行',1:'就绪',2:'等待',3:'挂起',4:'已删除',5:'未知'};
   function render(value) {
     if(!isCurrent(token))return;latest=value;
     const storage=value.storage||{},qemu=!!value.rtos_running;
-    document.querySelector('#system-summary').innerHTML=metric('本地服务',value.service==='RUNNING'?'运行中':'未就绪','',`已运行${number(value.uptime_seconds,0)}秒`,'quality')+metric('当前处理环境',qemu?'FreeRTOS':'Python',qemu?'QEMU':'',qemu?'任务信息来自运行中的FreeRTOS内核':'使用Python进程处理本地记录','quality')+metric('数据存储',fmtBytes(storage.free_bytes),'可用空间',`${storage.sessions??'—'}条索引记录`,'quality');
+    document.querySelector('#system-summary').innerHTML=metric('本地服务',value.service==='RUNNING'?'运行中':'未就绪','',`已运行${number(value.uptime_seconds,0)}秒`,'quality')+metric('FreeRTOS / QEMU',qemu?'运行中':value.capabilities?.qemu?'已就绪':'尚未就绪','',qemu?'任务信息来自运行中的 FreeRTOS 内核':value.capabilities?.qemu?'开始演示后运行固件任务':esc(value.capabilities?.qemu_reason||'请检查固件与本地数据'),'quality')+metric('数据存储',fmtBytes(storage.free_bytes),'可用空间',`${storage.sessions??'—'}条索引记录`,'quality');
     const tasks=value.tasks||[];
     document.querySelector('#system-task-note').textContent=qemu?'真实FreeRTOS任务；栈余量单位为32位字':'当前未运行FreeRTOS会话';
     document.querySelector('#system-tasks').innerHTML=tasks.length?`<div class="table-wrap"><table><thead><tr><th>任务</th><th>状态</th><th>优先级</th><th>心跳次数</th><th>最小剩余栈（字）</th></tr></thead><tbody>${tasks.map(t=>`<tr><td>${esc(taskName[t.name]||t.name)}</td><td>${esc(typeof t.state==='number'?taskState[t.state]||'未知':stageNames[t.state]||t.state||'—')}</td><td>${t.priority??'不适用'}</td><td>${t.heartbeat??'不适用'}</td><td>${t.stack_high_water_words??t.stack_high_water??'不适用'}</td></tr>`).join('')}</tbody></table></div>`:empty('当前没有处理任务','开始演示后会显示相应处理环境的任务状态。');
@@ -679,12 +688,12 @@ async function system(token) {
 async function settings(token) {
   const original=await api('/settings');if(!isCurrent(token))return;
   let values=structuredClone(original),section='display';
-  const defaults={chart_seconds:10,ui_hz:10,screen_timeout_s:30,strategy:'continuous'};
+  const defaults={chart_seconds:10,ui_hz:10,strategy:'continuous'};
   const fieldSelect=(key,options,value)=>`<select data-setting="${key}" aria-label="${({chart_seconds:'图表显示范围',ui_hz:'界面更新频率',strategy:'默认读取策略'})[key]||key}">${options.map(([v,label])=>`<option value="${v}" ${String(v)===String(value)?'selected':''}>${label}</option>`).join('')}</select>`;
   const row=(title,description,control)=>`<div class="setting-row"><div><h3>${title}</h3><p>${description}</p></div><div class="setting-value">${control}</div></div>`;
   function render() {
     let body='';
-    if(section==='display')body=`<h2>图表与腕端预览</h2>${row('图表显示范围','仅改变可见时间范围，原始数据和计算窗口保持不变。',fieldSelect('chart_seconds',[[10,'最近10秒'],[30,'最近30秒']],values.chart_seconds||10))}${row('界面更新频率','只影响画面更新，脉搏波始终按64 Hz处理。',fieldSelect('ui_hz',[[5,'每秒5次'],[10,'每秒10次']],values.ui_hz||10))}${row('腕端屏幕亮屏时长','超过此时长没有按键操作，腕端屏幕调暗；按任意按键唤醒。',`<input aria-label="腕端屏幕亮屏时长" type="number" min="10" max="120" data-setting="screen_timeout_s" value="${values.screen_timeout_s||30}"><span>秒</span>`)}`;
+    if(section==='display')body=`<h2>图表与腕端预览</h2>${row('图表显示范围','仅改变可见时间范围，原始数据和计算窗口保持不变。',fieldSelect('chart_seconds',[[10,'最近10秒'],[30,'最近30秒']],values.chart_seconds||10))}${row('界面更新频率','只影响画面更新，脉搏波始终按64 Hz处理。',fieldSelect('ui_hz',[[5,'每秒5次'],[10,'每秒10次']],values.ui_hz||10))}${row('腕端屏幕','预览始终保持亮屏，长时间不操作也不会自动变暗。','<span class="setting-fixed">常亮</span>')}`;
     if(section==='algorithm')body=`<h2>固定处理参数</h2>${row('脉搏波采样率','使用数据集原始时间间隔，正负幅值为设备相对单位。','<span class="setting-fixed">64 Hz</span>')}${row('运动输入采样率','原始三轴加速度为32 Hz，按时间与脉搏波对齐。','<span class="setting-fixed">32 Hz</span>')}${row('滤波与窗口','因果滤波，保留跨块状态；8秒窗口每秒更新。','<span class="setting-fixed">0.5–5 Hz / 8秒</span>')}${row('重新读取后的预热','策略重新开启或输入中断后，先建立滤波状态。','<span class="setting-fixed">2秒</span>')}${row('结果范围','用于识别不可靠的工程估计，不是临床风险等级。','<span class="setting-fixed">40–200 BPM</span>')}<p class="panel-note">这些参数与Python、FreeRTOS处理代码保持一致，在此页只读。</p>`;
     if(section==='strategy')body=`<h2>新演示的默认策略</h2>${row('读取策略','只影响之后创建的演示，当前演示保持创建时的配置。',fieldSelect('strategy',Object.entries(strategyNames),values.strategy||'continuous'))}<p class="panel-note">连续读取保留恢复段的全部观测；关键窗口优先和周期方案会在读取前排除部分时段，用于比较窗口覆盖。</p>`;
     if(section==='storage')body=`<h2>本地文件</h2>${row('原始公开数据','下载到项目内，保留数据版本、来源与校验信息。','<span class="setting-fixed mono">data/public/</span>')}${row('处理记录与索引','结果、波形、事件与SQLite索引保存在项目数据目录。','<span class="setting-fixed mono">data/</span>')}${row('记录清理','在记录库中选择需要删除的处理记录；原始公开数据不随记录删除。','<a class="btn small" href="#/sessions">打开记录库</a>')}<p class="panel-note">整个项目文件夹可以一起备份。清理文件前先停止项目服务。</p>`;
@@ -696,8 +705,6 @@ async function settings(token) {
     }));
     on('#save-settings','click',e=>run(e.currentTarget,async()=>{
       if(![10,30].includes(values.chart_seconds)||![5,10].includes(values.ui_hz??10))throw new Error('请选择页面提供的图表时长和更新频率。');
-      const timeout=values.screen_timeout_s??30;
-      if(!Number.isFinite(timeout)||timeout<10||timeout>120)throw new Error('腕端屏幕亮屏时长应为10～120秒。');
       const saved=await api('/settings',{method:'PUT',body:{...values,version:original.version}});
       Object.assign(original,saved);values=structuredClone(saved);state.settings=structuredClone(saved);state.seconds=values.chart_seconds||10;
       state.settingsDirty=false;render();toast('设置已保存。显示偏好已更新，默认策略用于下一次演示。');
@@ -716,7 +723,7 @@ async function route(force=false) {
     if(!confirm('设置尚未保存。离开后放弃这些修改？')) {history.replaceState(null,'',`#${state.route}`);return;}
     state.settingsDirty=false;
   }
-  if(state.route==='/wrist'&&next!=='/wrist'&&wrist.hasUnsavedSettings()) {
+  if(state.route==='/'&&next!=='/'&&wrist.hasUnsavedSettings()) {
     if(!confirm('腕端设置尚未保存。离开后放弃这些修改？')) {history.replaceState(null,'',`#${state.route}`);return;}
     wrist.discardSettingsDrafts();
   }
@@ -725,17 +732,17 @@ async function route(force=false) {
   const token=++state.token;state.route=next;
   const base=next.startsWith('/replay')?'/replay':next;
   document.querySelectorAll('[data-nav]').forEach(el=>el.classList.toggle('active',el.dataset.nav===base));
-  document.querySelector('.content')?.classList.toggle('immersive',base==='/wrist');
+  document.querySelector('.content')?.classList.toggle('immersive',base==='/');
   document.querySelector('#breadcrumb-title').textContent=titles[base]||'工作台';
   document.title=`${titles[base]||'工作台'} · RePulse 复脉`;
   main().innerHTML='<div class="loading"><span class="spinner"></span>正在读取页面数据</div>';
   try {
     if(base==='/replay')await replay(next.split('/')[2],token);
-    else await ({'/':home,'/monitor':monitor,'/wrist':wristView,'/sessions':sessions,'/compare':compare,'/lab':dataPage,'/system':system,'/settings':settings}[next]||home)(token);
+    else await ({'/':wristView,'/workbench':home,'/monitor':monitor,'/sessions':sessions,'/compare':compare,'/lab':dataPage,'/system':system,'/settings':settings}[next]||home)(token);
   } catch(error) {
     if(!isCurrent(token))return;
     document.querySelector('.content')?.classList.remove('immersive');
-    main().innerHTML=`${heading(titles[base]||'页面','当前数据未能载入。')}<div class="error-block"><p>${esc(error.message)}</p>${btn('重新载入','retry-route')}<a class="btn" href="#/">返回工作台</a></div>`;
+    main().innerHTML=`${heading(titles[base]||'页面','当前数据未能载入。')}<div class="error-block"><p>${esc(error.message)}</p>${btn('重新载入','retry-route')}<a class="btn" href="#/workbench">返回工作台</a></div>`;
     on('#retry-route','click',()=>route(true));
   }
 }

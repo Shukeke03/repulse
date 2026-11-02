@@ -176,6 +176,7 @@ td .muted {display: block; font-size: 11px; margin-top: 4px;}
 /* 腕端显示预览：独立舞台占满导航栏右侧，腕表实物外观是唯一的视觉重点。 */
 .content.immersive .topbar {display: none;}
 .content.immersive .main {padding: 0; max-width: none;}
+.content.immersive .main:focus {outline: none;}
 .content.immersive .connection-banner.show {position: fixed; top: 0; right: 0; left: 216px; z-index: 40;}
 .wrist-stage {height: 100vh; display: grid; grid-template-columns: 212px minmax(0, 1fr) 280px; grid-template-rows: auto minmax(0, 1fr); grid-template-areas: "head device notes" "map device notes"; overflow: hidden; background: radial-gradient(ellipse 46% 64% at 50% 52%, #fbfcfd 0%, #eef2f6 58%, #e2e7ed 100%);}
 .stage-head {grid-area: head; padding: 26px 8px 18px 28px;}
@@ -223,8 +224,16 @@ td .muted {display: block; font-size: 11px; margin-top: 4px;}
 .engrave.lower {top: calc(223 * var(--u));}
 .watch.buzz {animation: buzz .36s linear;}
 @keyframes buzz {20% {transform: translateX(-2px);} 40% {transform: translateX(2px);} 60% {transform: translateX(-1.5px);} 80% {transform: translateX(1.5px);}}
-.key-bar {display: none;}
-.key-bar .btn.pressed {background: #e3ecfd; border-color: #a9c0ea;}
+.keyboard-guide {position: relative; z-index: 3; flex-shrink: 0; width: min(460px, calc(100% - 32px)); padding: 14px 16px; border: 1px solid #b3c8f3; border-radius: 14px; background: #ffffffed; box-shadow: 0 8px 24px #213e6512; color: #34495f;}
+.keyboard-guide-title {display: flex; align-items: center; justify-content: center; gap: 9px; color: #1d4fca;}
+.keyboard-guide-title svg {width: 23px; height: 23px;}
+.keyboard-guide-title h2 {font-size: 15px; font-weight: 650;}
+.keyboard-guide > p {margin: 5px 0 11px; text-align: center; font-size: 11px; line-height: 1.7; color: #5c708b;}
+.keyboard-keys {display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px;}
+.keyboard-keys button {display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 39px; padding: 5px; border: 1px solid #d1def5; border-radius: 7px; background: #f1f5ff; color: #345381; font-size: 11px; touch-action: none;}
+.keyboard-keys kbd {min-width: 24px; margin: 0; font-size: 11px;}
+.keyboard-keys button.pressed {background: #245ff2; border-color: #245ff2; color: #fff;}
+.keyboard-keys button.pressed kbd {background: transparent; color: #fff; border-color: #ffffff80;}
 .device-notes section + section {margin-top: 20px; padding-top: 18px; border-top: 1px solid #d3dbe5;}
 .key-legend, .spec-list {display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 9px 10px; margin: 12px 0 0;}
 .key-legend dt {font-weight: 600; color: #2a3e56;}
@@ -451,7 +460,9 @@ input[type=checkbox] {accent-color: var(--blue); width: 16px; height: 16px;}
   .strap {height: calc(96 * var(--u));}
   .strap.top {top: calc(-52 * var(--u));}
   .strap.bottom {bottom: calc(-52 * var(--u));}
-  .key-bar {display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; width: min(100%, 320px); margin-bottom: 4px;}
+  .keyboard-guide {order: -1; width: calc(100% - 32px); margin: 16px 0 0; padding: 12px;}
+  .keyboard-keys {gap: 6px;}
+  .keyboard-keys button {flex-direction: column; gap: 4px; min-height: 54px;}
 }
 /* 尊重系统的减少动态效果设置。 */
 @media (prefers-reduced-motion: reduce) {

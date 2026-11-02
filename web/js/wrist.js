@@ -17,7 +17,6 @@ const NUM = '"DIN Alternate","Bahnschrift","Roboto Condensed","Arial Narrow",san
 const STRATEGY = {continuous: '连续读取', critical: '关键窗口优先', periodic: '周期读取'};
 const STAGE = {CREATED: '待开始', PREPARING: '起点前准备', RECOVERING: '恢复中', FINALIZING: '正在保存', COMPLETED: '已完成', CANCELLED: '已停止', INTERRUPTED: '已中断', FAILED: '处理失败'};
 const STAGE_COLOR = {PREPARING: C.amber, RECOVERING: C.mint, FINALIZING: C.amber, COMPLETED: C.mint, FAILED: C.danger, INTERRUPTED: C.danger};
-const MODE = {PYTHON: 'Python 本机处理', FREERTOS_QEMU: 'FreeRTOS / QEMU'};
 const REASON = {
   INSUFFICIENT_HISTORY: '起点前数据不足', HISTORY_INSUFFICIENT: '起点前数据不足', INSUFFICIENT_DATA: '有效样本不足',
   NOT_READY: '等待完整窗口', WAITING: '等待完整窗口', PENDING: '等待完整窗口', PREPARING: '正在读取',
@@ -38,7 +37,7 @@ const WINDOW_STYLE = {
 };
 const EVENT = {CREATED: '演示记录已创建', PREPARE_STARTED: '开始读取起点前数据', T0_LOCKED: '已到恢复起点', WINDOW_RESULT: '窗口处理完成', FINALIZING: '正在保存结果', COMPLETED: '演示完成', CANCELLED: '演示停止'};
 const KEY_LABEL = {back: '返回', up: '上', ok: '确认', down: '下'};
-const KIND_LABEL = {short: '短按', long: '长按', repeat: '按住', wake: '短按', click: '点击'};
+const KIND_LABEL = {short: '短按', long: '长按', repeat: '按住', click: '点击'};
 const KEYMAP = {ArrowUp: 'up', ArrowDown: 'down', Enter: 'ok', ' ': 'ok', Escape: 'back', Backspace: 'back', ArrowLeft: 'back', ArrowRight: 'ok'};
 const PHASES = [0, 5, 10, 15];
 const NO_LINE_START = '，。、；：？！）》」』…%,.;:?!)';
@@ -590,7 +589,7 @@ SCREENS.start = list({
     const preferred = s.preset?.dataset || boot.defaults?.dataset_id;
     s.form = {
       dataset: datasets.some(d => d.id === preferred) ? preferred : datasets[0]?.id,
-      mode: 'PYTHON', strategy: STRATEGY[settings.strategy] ? settings.strategy : 'continuous', phase: 0, speed: 1,
+      mode: 'FREERTOS_QEMU', strategy: STRATEGY[settings.strategy] ? settings.strategy : 'continuous', phase: 0, speed: 1,
     };
   },
   retry: true,
@@ -604,21 +603,18 @@ SCREENS.start = list({
     if (os.active() || !datasets.length) return [];
     const form = s.form, selected = datasets.find(d => d.id === form.dataset) || datasets[0];
     if (!form.dataset) form.dataset = selected.id;
-    const limits = caps.qemu_limits || {}, qemu = form.mode === 'FREERTOS_QEMU';
+    const limits = caps.qemu_limits || {};
     return [
       pickerRow(os, '数据记录', datasetShort(selected), datasets.map(d => ({value: d.id, label: datasetShort(d), sub: d.recovery_label || '主动恢复'})), form.dataset, value => { form.dataset = value; }),
-      pickerRow(os, '处理环境', MODE[form.mode], [
-        {value: 'PYTHON', label: 'Python 本机处理'},
-        {value: 'FREERTOS_QEMU', label: 'FreeRTOS / QEMU', sub: caps.qemu ? '固件任务处理' : '尚未就绪', disabled: !caps.qemu && 'FreeRTOS / QEMU 尚未就绪，请先构建固件'},
-      ], form.mode, value => { form.mode = value; }),
+      infoRow('处理环境', 'FreeRTOS / QEMU', caps.qemu ? C.mint : C.amber),
       pickerRow(os, '读取策略', STRATEGY[form.strategy], Object.entries(STRATEGY).map(([value, label]) => ({
-        value, label, disabled: qemu && limits.strategies && !limits.strategies.includes(value) && '固件暂不支持此策略',
+        value, label, disabled: limits.strategies && !limits.strategies.includes(value) && '固件暂不支持此策略',
       })), form.strategy, value => { form.strategy = value; }),
       pickerRow(os, '起始偏移', `${form.phase} 秒`, PHASES.map(value => ({value, label: `${value} 秒`})), form.phase, value => { form.phase = value; }, form.strategy !== 'periodic' && '起始偏移仅用于周期读取'),
       pickerRow(os, '演示速度', `${form.speed} 倍`, [1, 2, 5, 10].map(value => ({
-        value, label: `${value} 倍${value === 1 ? '（按记录时长）' : ''}`, disabled: qemu && limits.speeds && !limits.speeds.includes(value) && '固件不支持此速度',
+        value, label: `${value} 倍${value === 1 ? '（按记录时长）' : ''}`, disabled: limits.speeds && !limits.speeds.includes(value) && '固件不支持此速度',
       })), form.speed, value => { form.speed = value; }),
-      {kind: 'button', label: s.busy ? '正在启动…' : '开始演示', color: C.pulse, ok: () => startDemo(os, s, selected)},
+      {kind: 'button', label: s.busy ? '正在启动…' : '开始演示', color: C.pulse, disabled: !caps.qemu && 'FreeRTOS / QEMU 尚未就绪，请先构建固件并检查本地数据', ok: () => startDemo(os, s, selected)},
     ];
   },
 });
@@ -1121,7 +1117,7 @@ function systemOverview(g, os, status) {
   rows(g, [
     ['本地服务', status.service === 'RUNNING' ? '运行中' : '未就绪', status.service === 'RUNNING' ? C.mint : C.amber],
     ['已运行', fmtUptime(status.uptime_seconds)],
-    ['处理环境', qemu ? 'FreeRTOS / QEMU' : 'Python'],
+    ['处理环境', 'FreeRTOS / QEMU', qemu ? C.mint : C.mist],
     ['可用空间', fmtBytes(status.storage?.free_bytes)],
     ['处理记录', `${status.storage?.sessions ?? '—'} 条`],
   ]);
@@ -1130,7 +1126,7 @@ function systemTasks(g, os, status) {
   const tasks = status.tasks || [];
   if (!tasks.length) return drawMessage(g, '当前没有处理任务', '开始演示后显示对应处理环境的任务。', {icon: 'chip'});
   const qemu = !!status.rtos_running;
-  g.text(qemu ? 'FreeRTOS 内核实测' : 'Python 处理进程', 18, 58, {size: 12, color: C.mist});
+  g.text('FreeRTOS 内核实测', 18, 58, {size: 12, color: C.mist});
   g.text(qemu ? '心跳 / 栈余量' : '状态', 222, 58, {size: 12, color: C.dim, align: 'right'});
   tasks.slice(0, 6).forEach((task, i) => {
     const y = 72 + i * 32;
@@ -1152,9 +1148,9 @@ function systemAbout(g, os, status) {
   g.text('非医疗器械，未做临床准确度验证', 120, 258, {size: 12, color: C.dim, align: 'center'});
 }
 
-// 设置：亮屏、刷新、图表与默认策略写入本地服务；屏幕亮度只保存在本机。
-const SETTING_KEYS = ['screen_timeout_s', 'ui_hz', 'chart_seconds', 'strategy'];
-const SETTING_DEFAULTS = {screen_timeout_s: 30, ui_hz: 10, chart_seconds: 10, strategy: 'continuous'};
+// 设置：刷新、图表与默认策略写入本地服务；屏幕常亮，手动亮度只保存在本机。
+const SETTING_KEYS = ['ui_hz', 'chart_seconds', 'strategy'];
+const SETTING_DEFAULTS = {ui_hz: 10, chart_seconds: 10, strategy: 'continuous'};
 const pickSettings = settings => Object.fromEntries(SETTING_KEYS.map(key => [key, settings?.[key] ?? SETTING_DEFAULTS[key]]));
 const settingsDirty = s => SETTING_KEYS.some(key => s.draft[key] !== s.saved[key]);
 SCREENS.settings = list({
@@ -1168,7 +1164,6 @@ SCREENS.settings = list({
     const d = s.draft, dirty = settingsDirty(s);
     const set = key => value => { d[key] = value; };
     return [
-      pickerRow(os, '亮屏时长', `${d.screen_timeout_s} 秒`, [10, 15, 20, 30, 45, 60, 90, 120].map(v => ({value: v, label: `${v} 秒`})), d.screen_timeout_s, set('screen_timeout_s')),
       pickerRow(os, '界面刷新', `每秒 ${d.ui_hz} 次`, [5, 10].map(v => ({value: v, label: `每秒 ${v} 次`, sub: '只影响显示，处理仍为 64 Hz'})), d.ui_hz, set('ui_hz')),
       pickerRow(os, '电脑端图表时长', `最近 ${d.chart_seconds} 秒`, [10, 30].map(v => ({value: v, label: `最近 ${v} 秒`})), d.chart_seconds, set('chart_seconds')),
       pickerRow(os, '默认读取策略', STRATEGY[d.strategy], Object.entries(STRATEGY).map(([value, label]) => ({value, label, sub: '用于之后新建的演示'})), d.strategy, set('strategy')),
@@ -1209,7 +1204,7 @@ class WristOS {
     this.stack = [this.make('face')];
     this.queue = []; this.current = null;
     this.held = {}; this.keyboard = {}; this.hold = null; this.trans = null;
-    this.lastInput = performance.now(); this.dimmed = false; this.dirty = true; this.lastFrame = 0;
+    this.dirty = true; this.lastFrame = 0;
     this.brightness = Number(localStorage.getItem('repulse.wrist.brightness')) || 100;
     this.cache = {recent: null, recentAt: -Infinity};
     this.seen = {sid: undefined};
@@ -1327,7 +1322,7 @@ class WristOS {
     });
   }
 
-  // 提示条与振动：窗口结果、阶段变化和错误都会点亮屏幕。
+  // 提示条与振动：窗口结果、阶段变化和错误及时显示，屏幕始终保持常亮。
   toast(text, kind = 'info', detail = '') {
     const title = kind === 'error' ? '操作未完成' : text, body = kind === 'error' ? text : detail;
     // 新的数据提示替换尚未看完的旧提示，避免高倍速演示时提示滞后于实际进度。
@@ -1340,16 +1335,12 @@ class WristOS {
     }
     this.queue.push({title, body, kind, ms: kind === 'error' ? TOAST_MS + 1500 : TOAST_MS});
     if (this.queue.length > 3) this.queue.shift();
-    this.wake(); this.touch();
+    this.touch();
   }
   notify(title, detail) {
     this.toast(title, 'notify', detail);
     const watch = this.root?.querySelector('.watch');
     if (watch && !this.reduced) { watch.classList.remove('buzz'); void watch.offsetWidth; watch.classList.add('buzz'); }
-  }
-  wake() {
-    this.lastInput = performance.now();
-    if (this.dimmed) { this.dimmed = false; this.applyBacklight(); }
   }
   setBrightness(value) {
     this.brightness = value;
@@ -1358,8 +1349,7 @@ class WristOS {
   }
   applyBacklight() {
     if (!this.target || !this.interactive) return;
-    this.target.style.filter = this.dimmed ? 'brightness(.28)' : this.brightness < 100 ? `brightness(${this.brightness / 100})` : '';
-    this.root?.classList.toggle('screen-dimmed', this.dimmed);
+    this.target.style.filter = this.brightness < 100 ? `brightness(${this.brightness / 100})` : '';
   }
   async loadRecent() {
     if (performance.now() - this.cache.recentAt < 8000) return;
@@ -1408,11 +1398,9 @@ class WristOS {
     if (this.held[key]) return;
     const now = performance.now(), held = this.held[key] = {start: now};
     this.pressVisual(key, true);
-    if (this.dimmed) { held.consumed = true; this.wake(); this.record(key, 'wake', '点亮屏幕'); this.touch(); return; }
-    this.lastInput = now;
     if (key === 'up' || key === 'down') {
       this.dispatch(key, 'short');
-      held.timer = setTimeout(() => { held.repeat = setInterval(() => { this.lastInput = performance.now(); this.dispatch(key, 'repeat'); }, REPEAT_MS); }, REPEAT_DELAY);
+      held.timer = setTimeout(() => { held.repeat = setInterval(() => { this.dispatch(key, 'repeat'); }, REPEAT_MS); }, REPEAT_DELAY);
       return;
     }
     const s = this.top();
@@ -1432,7 +1420,7 @@ class WristOS {
     clearTimeout(held.timer); clearInterval(held.repeat);
     this.pressVisual(key, false);
     if (this.hold?.key === key) this.hold = null;
-    if (held.consumed || key === 'up' || key === 'down' || held.fired) { this.touch(); return; }
+    if (key === 'up' || key === 'down' || held.fired) { this.touch(); return; }
     this.dispatch(key, 'short');
   }
   releaseAll() {
@@ -1487,7 +1475,6 @@ class WristOS {
     this.setTarget(target);
     const live = this.live();
     this.seen = {sid: idOf(live) || null, ids: new Set((live?.events || []).map(e => e.id || `${e.type}-${e.time_us}`)), phase: phaseOf(live)};
-    this.lastInput = performance.now(); this.dimmed = false;
     if (interactive && root) this.bind(root);
     const top = this.top();
     SCREENS[top.id].enter?.(this, top);
@@ -1570,11 +1557,6 @@ class WristOS {
     if (!this.running) return;
     this.raf = requestAnimationFrame(this.frame);
     this.watchLive();
-    if (this.interactive) {
-      const timeout = (this.settings().screen_timeout_s || 30) * 1000;
-      const dim = now - this.lastInput > timeout && !this.current && !this.queue.length && !this.hold;
-      if (dim !== this.dimmed) { this.dimmed = dim; this.applyBacklight(); }
-    }
     const s = this.top(), def = SCREENS[s.id];
     const moving = this.trans || this.hold || this.current || this.queue.length || Math.abs(s.scroll - s.scrollTarget) > .5 || def.animate?.(this, s);
     const interval = 1000 / (moving ? PANEL.fps : this.settings().ui_hz || 10);

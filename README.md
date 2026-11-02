@@ -1,6 +1,6 @@
 # RePulse 复脉
 
-RePulse 是一个运动恢复监护课程项目。系统读取公开的穿戴设备历史记录，处理脉搏波和加速度数据，展示恢复过程，并计算固定时间窗口内的脉率。浏览器界面由 FastAPI 提供；项目同时支持主机端信号处理和基于 QEMU 的 FreeRTOS 固件仿真。
+RePulse 是一个运动恢复监护课程项目。系统读取公开的穿戴设备历史记录，处理脉搏波和加速度数据，展示恢复过程，并计算固定时间窗口内的脉率。新建演示统一由 QEMU 中的 FreeRTOS 固件执行信号处理，浏览器界面与本机服务由 Python / FastAPI 提供。
 
 ## 演示
 
@@ -32,7 +32,7 @@ https://github.com/user-attachments/assets/462c99d1-ae6f-4af0-a102-d0aa058504e8
 
 ## 安装与启动
 
-需要 Git 和 [Miniforge](https://github.com/conda-forge/miniforge)。项目已在 macOS Apple Silicon 上验证。应用使用 POSIX 文件锁，不支持原生 Windows；可尝试在 WSL2 中运行，但尚未验证。
+需要 Git、[Miniforge](https://github.com/conda-forge/miniforge)、`make`、`qemu-system-arm` 和 Arm GNU 工具链（`arm-none-eabi-*`）。QEMU 与 Arm 工具链需另行安装并加入 `PATH`，参考 [QEMU 下载页](https://www.qemu.org/download/)和 [Arm GNU 工具链](https://developer.arm.com/Tools%20and%20Software/GNU%20Toolchain)。项目已在 macOS Apple Silicon 上验证。应用使用 POSIX 文件锁，不支持原生 Windows；可尝试在 WSL2 中运行，但尚未验证。
 
 ```sh
 git clone https://github.com/Shukeke03/repulse.git
@@ -40,15 +40,17 @@ cd repulse
 conda env create -f environment.yml
 conda activate repulse
 python -m scripts.download_dataset
+make -C firmware TARGET=qemu
 python run.py
 ```
 
-已有环境和数据时，激活环境后在项目根目录执行 `python run.py`。服务默认绑定 `127.0.0.1:8765`，按 `Ctrl+C` 停止；可通过 `python run.py --port 8766` 修改端口。同一数据目录只允许一个服务进程使用。
+已有环境、数据和 QEMU 固件时，激活环境后在项目根目录执行 `python run.py`；修改固件代码后重新构建。服务默认绑定 `127.0.0.1:8765`，按 `Ctrl+C` 停止；可通过 `python run.py --port 8766` 修改端口。同一数据目录只允许一个服务进程使用。
 
 | 地址 | 内容 |
 | --- | --- |
-| [http://127.0.0.1:8765](http://127.0.0.1:8765) | Web 界面 |
-| [http://127.0.0.1:8765/#/wrist](http://127.0.0.1:8765/#/wrist) | 腕端显示预览 |
+| [http://127.0.0.1:8765](http://127.0.0.1:8765) | 默认首页：腕端显示预览 |
+| [http://127.0.0.1:8765/#/workbench](http://127.0.0.1:8765/#/workbench) | 工作台 |
+| [http://127.0.0.1:8765/#/wrist](http://127.0.0.1:8765/#/wrist) | 腕端首页兼容地址 |
 | [http://127.0.0.1:8765/docs](http://127.0.0.1:8765/docs) | API 文档 |
 | [http://127.0.0.1:8765/api/datasets](http://127.0.0.1:8765/api/datasets) | 已下载的数据记录 |
 
@@ -56,20 +58,17 @@ python run.py
 
 ### 腕端显示预览
 
-导航中的“腕端显示预览”是第九个页面。屏幕以 240×280 像素绘制，每帧量化为 RGB565 颜色；四个模拟实体按键分别为返回、上、下、确认，也可使用键盘 `Esc`、`↑`、`↓`、`Enter`。确认键打开菜单或执行选中项，上下键移动焦点或切页；返回键退回上一级，长按约 0.8 秒回到表盘。在腕端的恢复过程页长按确认约 1.2 秒，会打开停止演示的确认页。屏幕调暗后，第一次按键只负责唤醒。
+默认首页直接显示腕端预览，工作台位于 `/#/workbench`。屏幕以 240×280 像素绘制，每帧量化为 RGB565 颜色；四个模拟实体按键分别为返回、上、下、确认，手表旁同时标注键盘 `Esc`、`↑`、`↓`、`Enter` 的对应操作。确认键打开菜单或执行选中项，上下键移动焦点或切页；返回键退回上一级，长按约 0.8 秒回到表盘。在腕端的恢复过程页长按确认约 1.2 秒，会打开停止演示的确认页。屏幕保持常亮，无操作时不自动调暗。
 
 腕端菜单有新建演示、恢复过程、记录库、记录回放、策略比较、数据与片段、系统状态和设置八个应用，与电脑端共用本机服务和处理记录。记录库与回放选择列表只加载最近 20 条公开数据记录，较早记录、备注、标签和导出请使用电脑端记录库。当前腕端界面仍运行在浏览器中，尚未接入固件显示驱动或物理按键。页面结构、操作与移植边界见 [腕端界面说明](docs/WRIST_UI.md)。
 
 ## 处理路径
 
-工作台的“处理环境”对应两条执行路径。FastAPI、数据读取和结果存储均在主机端运行。
+工作台、腕端和会话 API 新建的演示均使用 **FreeRTOS / QEMU**。主机预先写入观测文件，QEMU 模拟的 Cortex-M3 中运行固件任务，执行采集策略、脉搏波处理和窗口计算；主机读取结果并归档。QEMU 或固件未就绪时无法开始演示。
 
-| 工作台选项 | 信号处理位置 | 说明 |
-| --- | --- | --- |
-| Python · 本机处理 | 主机端 Python 进程 | `SessionEngine` 调用 `Processor`，完成脉搏波滤波、质量判定和窗口计算。 |
-| FreeRTOS / QEMU | QEMU 模拟的 Cortex-M3 中 | 主机预先写入观测文件，固件任务执行采集策略、脉搏波处理和窗口计算；主机读取结果并归档。 |
+Python 仍提供 FastAPI 服务、数据读取、加速度预处理、结果存储、历史回放和离线算法校验，因此需保留 Python 环境与依赖。策略比较也使用 Python 对离线片段重算。
 
-两条路径共用主机端的加速度单位换算和动态运动量计算，32 Hz 结果以前值保持方式对齐到 64 Hz 脉搏波。QEMU 使用带版本和 CRC 的 semihosting 文件通道传递观测与处理结果；UART 用于控制和诊断。固件仿真结果不代表 STM32 实机性能。
+主机完成加速度单位换算和动态运动量计算，32 Hz 结果以前值保持方式对齐到 64 Hz 脉搏波。QEMU 使用带版本和 CRC 的 semihosting 文件通道传递观测与处理结果；UART 用于控制和诊断。固件仿真结果不代表 STM32 实机性能。
 
 ### 运行 FreeRTOS 固件
 
@@ -80,7 +79,7 @@ make -C firmware TARGET=qemu
 python run.py
 ```
 
-构建后，在工作台选择 **FreeRTOS / QEMU**。也可在终端单独运行：
+构建后，从腕端首页或工作台开始演示即可使用 **FreeRTOS / QEMU**。也可在终端单独运行：
 
 ```sh
 python -m scripts.run_qemu --speed 10
@@ -91,7 +90,7 @@ python -m scripts.run_qemu --gdb
 
 ## 测试
 
-先下载公开记录，再从项目根目录运行：
+先下载公开记录并构建 QEMU 固件，再从项目根目录运行：
 
 ```sh
 python -m pytest tests/unit tests/api

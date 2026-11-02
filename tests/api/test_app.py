@@ -1,5 +1,9 @@
 # 使用隔离存储验证真实数据接口、持久化、导出和并发操作约束。
-"""Real-recording API contracts against isolated on-disk application state."""
+"""Storage/API contracts with recorded input and a deterministic offline test double.
+
+These tests advance time explicitly to cover exact windows and crash recovery.
+Production session routing and actual QEMU are covered in test_qemu_only.py.
+"""
 
 import hashlib
 import json
@@ -11,9 +15,19 @@ from fastapi.testclient import TestClient
 
 from backend.api.app import create_app
 from backend.domain.models import DEFAULT_DATASET
+from backend.engines.session import SessionEngine
 from backend.sources.public_data import list_datasets
 
 pytestmark = pytest.mark.skipif(not list_datasets(), reason="Run python -m scripts.download_dataset first")
+
+
+class OfflineSessionDouble(SessionEngine):
+    """Deterministic state/storage substitute; never used by the application."""
+
+
+@pytest.fixture(autouse=True)
+def offline_firmware_double(monkeypatch):
+    monkeypatch.setattr("backend.api.app.FirmwarePort", OfflineSessionDouble)
 
 
 def post(client, path, body, key=None):

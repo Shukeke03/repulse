@@ -2,7 +2,7 @@
 
 项目提供两个固件构建目标：`qemu` 对应 QEMU MPS2 AN385（Cortex-M3），用于运行 FreeRTOS 仿真；`stm32` 对应 STM32L476RG（Cortex-M4F），目前仅完成交叉编译。STM32 的传感器、显示和按键接口尚未接入。
 
-QEMU 固件仿真与主机端处理使用同一份 PhysioNet 记录。主机负责读取和校验文件、加速度预处理、传输、归档及界面推送；固件负责采集策略、PPG 滤波、峰检测、质量判断和窗口计算。
+新建演示统一通过 QEMU 运行 FreeRTOS 固件，使用本机 PhysioNet 记录。Python 主机负责读取和校验文件、加速度预处理、传输、归档及界面推送；固件负责采集策略、PPG 滤波、峰检测、质量判断和窗口计算。Python 继续用于 Web 服务、历史回放、离线策略比较和算法校验。
 
 ## 输入与时钟
 
@@ -36,14 +36,16 @@ semihosting 通道仅使用程序指定的相对文件名。协议参考：[QEMU
 
 ## 构建与运行
 
-在项目根目录的 `repulse` 环境中构建：
+先安装 `make`、`qemu-system-arm` 和 Arm GNU 工具链（`arm-none-eabi-*`），将其加入 `PATH`。下载公开记录后，在项目根目录的 `repulse` 环境中构建 QEMU 固件并启动服务：
 
 ```sh
 make -C firmware TARGET=qemu
-make -C firmware TARGET=stm32
+python run.py
 ```
 
-工作台可选择 FreeRTOS/QEMU 执行环境。终端运行示例：
+默认首页为腕端显示预览，工作台位于 `/#/workbench`；两处新建演示均固定使用 FreeRTOS / QEMU。QEMU 或固件未就绪时无法开始演示。腕端界面保持常亮，绘制与按键交互仍在浏览器中执行，尚未接入固件 UI 任务。
+
+`make -C firmware TARGET=stm32` 可交叉编译 STM32 目标。终端独立运行 QEMU 的示例：
 
 ```sh
 python -m scripts.run_qemu --dataset-id wearable-aerobic-s02 --speed 5

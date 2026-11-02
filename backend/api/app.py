@@ -34,7 +34,7 @@ from backend.domain.models import (
 from backend.engines.firmware_port import FirmwarePort
 from backend.engines.firmware_port import availability as firmware_available
 from backend.engines.replay import ReplayEngine
-from backend.engines.session import DomainError, SessionEngine
+from backend.engines.session import DomainError
 from backend.sources.public_data import DatasetSource, get_dataset, list_datasets, record_directory
 from backend.storage.store import Store, atomic_json, json_text, utcnow
 
@@ -127,12 +127,12 @@ class Service:
         qemu = firmware_available() and available
         connected = bool(self.active() and self.engine.config["execution_mode"] == "FREERTOS_QEMU")
         return {
-            "python": available,
+            "python": False,
             "qemu": qemu,
             "device": False,
             "qemu_connected": connected,
             "qemu_installed": firmware_available(),
-            "execution_modes": ["PYTHON"] + (["FREERTOS_QEMU"] if qemu else []),
+            "execution_modes": ["FREERTOS_QEMU"] if qemu else [],
             "origins": ["PUBLIC_DATA"],
             "qemu_limits": {
                 "strategies": ["continuous", "critical", "periodic"],
@@ -359,7 +359,7 @@ def create_app(data_root=None):
             raise DomainError("NOT_FOUND", "原始数据文件不存在", 404)
         return FileResponse(record_directory(dataset_id) / name, filename=f"{metadata['subject']}_{name}")
 
-    # 按执行方式创建Python或QEMU会话。
+    # 在线演示仅创建真实QEMU固件会话；环境缺失时直接返回错误，不回退到主机算法。
     @app.post("/api/sessions")
     async def create_session(body: SessionConfig, request: Request):
         s = service(request)
@@ -367,10 +367,7 @@ def create_app(data_root=None):
         def action():
             if s.active():
                 raise DomainError("ACTIVE_SESSION_EXISTS", "已有记录运行中，请返回实时监护")
-            if body.execution_mode == "STM32_DEVICE":
-                raise DomainError("SOURCE_UNAVAILABLE", "该执行环境尚未通过接入验证，暂不可用", 422)
-            cls = FirmwarePort if body.execution_mode == "FREERTOS_QEMU" else SessionEngine
-            s.engine = cls(s.store, body.model_dump(), s.settings)
+            s.engine = FirmwarePort(s.store, body.model_dump(), s.settings)
             return s.engine.snapshot()
 
         return await s.mutate(request, action)
@@ -852,7 +849,7 @@ def create_app(data_root=None):
             "platform": platform.platform(),
             "uptime_seconds": round(time.monotonic() - s.started, 1),
             "service": "RUNNING",
-            "execution_mode": "FREERTOS_QEMU" if qemu else "PYTHON",
+            "execution_mode": "FREERTOS_QEMU" if qemu else None,
             "capabilities": s.capabilities(),
             "data_dir": str(s.store.root),
             "storage": {
@@ -861,21 +858,7 @@ def create_app(data_root=None):
                 "sessions": len(s.store.all()),
                 "status": "OK",
             },
-            "tasks": snapshot["diagnostics"].get("tasks", [])
-            if qemu
-            else (
-                [
-                    {
-                        "name": "SessionEngine",
-                        "kind": "Python记录处理",
-                        "state": active.state,
-                        "priority": None,
-                        "stack_high_water": None,
-                    }
-                ]
-                if active
-                else []
-            ),
+            "tasks": snapshot["diagnostics"].get("tasks", []) if qemu else [],
             "channels": {
                 "samples": len(active.samples) if active else 0,
                 "queue_depth": None,

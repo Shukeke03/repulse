@@ -71,12 +71,20 @@ def visit(page, url, route="/"):
     assert page.locator(".error-block").count() == 0
 
 
-def start_demo(page, url, name, mode="PYTHON", speed="10"):
-    visit(page, url)
+def start_demo(page, url, name, speed="10"):
+    if not page.request.get(url + "/api/bootstrap").json()["capabilities"]["qemu"]:
+        pytest.skip("Build QEMU to run firmware browser verification")
+    visit(page, url, "/workbench")
     page.locator("#session-name").fill(name)
-    page.locator("#session-source").select_option(mode)
+    expect(page.locator("#session-source")).to_have_value("FreeRTOS / QEMU")
+    expect(page.locator("#session-source")).not_to_be_editable()
     page.locator("#session-speed").select_option(speed)
-    page.locator("#start-session").click()
+    with page.expect_response(
+        lambda r: r.url.endswith("/api/sessions") and r.request.method == "POST"
+    ) as created:
+        page.locator("#start-session").click()
+    assert created.value.request.post_data_json["execution_mode"] == "FREERTOS_QEMU"
+    assert created.value.json()["execution_mode"] == "FREERTOS_QEMU"
     page.wait_for_url("**/#/monitor")
     page.locator("#monitor-origin").wait_for()
     assert "公开人体记录" in page.locator("#monitor-origin").inner_text()
@@ -93,7 +101,7 @@ def test_nine_routes_and_mobile_readability(app_url, browser_page):
     for route in (
         "/",
         "/monitor",
-        "/wrist",
+        "/workbench",
         "/sessions",
         "/replay",
         "/compare",
@@ -105,7 +113,7 @@ def test_nine_routes_and_mobile_readability(app_url, browser_page):
         assert page.locator("h1").inner_text()
         for removed in ("随机种子", "正常恢复", "故障注入", "WORKSPACE", "每一次恢复"):
             assert removed not in page.locator("body").inner_text()
-    visit(page, app_url)
+    visit(page, app_url, "/workbench")
     assert (
         page.locator("#session-dataset").input_value()
         == page.request.get(app_url + "/api/bootstrap").json()["defaults"]["dataset_id"]
@@ -120,7 +128,7 @@ def test_nine_routes_and_mobile_readability(app_url, browser_page):
     for route in (
         "/",
         "/monitor",
-        "/wrist",
+        "/workbench",
         "/sessions",
         "/replay",
         "/compare",
@@ -149,7 +157,9 @@ def test_public_data_complete_export_and_independent_replay(app_url, browser_pag
         })();"""
     )
     start_demo(page, app_url, "真实记录浏览器验收")
-    page.wait_for_function("document.querySelector('#session-controls')?.dataset.phase === 'RECOVERING'")
+    page.wait_for_function(
+        "document.querySelector('#session-controls')?.dataset.phase === 'RECOVERING'", timeout=60000
+    )
     t0 = page.request.get(app_url + "/api/bootstrap").json()["active_session"]["t0_us"]
     assert t0 == 10_000_000
     page.locator("#freeze-view").click()
@@ -238,7 +248,7 @@ def test_settings_drafts_and_real_record_comparison(app_url, browser_page):
     page.locator('[data-nav="/compare"]').click()
     page.locator("#compare-phases").fill("0")
     page.locator("#start-compare").click()
-    page.wait_for_function("document.querySelector('#compare-badge')?.innerText === '已完成'", timeout=60000)
+    page.wait_for_function("document.querySelector('#compare-badge')?.innerText === '已完成'", timeout=180000)
     assert page.locator("#compare-results > .table-wrap tbody tr").count() == 3
     assert page.locator("#compare-seeds").count() == 0
     for format in ("json", "csv"):
@@ -253,7 +263,7 @@ def test_qemu_consumes_public_record_and_reports_real_tasks(app_url, browser_pag
     capabilities = page.request.get(app_url + "/api/bootstrap").json()["capabilities"]
     if not capabilities["qemu"]:
         pytest.skip("Build QEMU to run real firmware browser verification")
-    start_demo(page, app_url, "FreeRTOS真实记录验收", mode="FREERTOS_QEMU")
+    start_demo(page, app_url, "FreeRTOS真实记录验收")
     page.wait_for_function(
         "document.querySelector('#session-controls')?.dataset.phase === 'RECOVERING'", timeout=60000
     )
@@ -282,7 +292,7 @@ def wrist_screen(page, screen, focus=None):
 
 def test_wrist_full_workspace_layout_and_button_navigation(app_url, browser_page):
     page = browser_page
-    visit(page, app_url, "/wrist")
+    visit(page, app_url)
     canvas = page.locator("#wrist-screen")
     assert canvas.get_attribute("width") == "240"
     assert canvas.get_attribute("height") == "280"
@@ -328,11 +338,10 @@ def test_wrist_full_workspace_layout_and_button_navigation(app_url, browser_page
 
 def test_wrist_settings_draft_protection_and_persistence(app_url, browser_page):
     page = browser_page
-    visit(page, app_url, "/wrist")
+    visit(page, app_url)
     saved = page.request.get(app_url + "/api/settings").json()
     new_seconds = 10 if saved["chart_seconds"] == 30 else 30
     page.locator('.map-node[data-jump="settings"]').click()
-    wrist_key(page, "ArrowDown")
     wrist_key(page, "ArrowDown")
     wrist_screen(page, "settings", f"电脑端图表时长：最近 {saved['chart_seconds']} 秒")
     wrist_key(page, "Enter")
@@ -347,7 +356,7 @@ def test_wrist_settings_draft_protection_and_persistence(app_url, browser_page):
     # 切换电脑页面同样保护未保存的腕端草稿；拒绝后仍可继续编辑。
     page.once("dialog", lambda dialog: dialog.dismiss())
     page.locator('[data-nav="/monitor"]').click()
-    page.wait_for_url("**/#/wrist")
+    page.wait_for_url("**/#/")
     wrist_screen(page, "settings")
     for _ in range(3):
         wrist_key(page, "ArrowDown")
@@ -362,10 +371,9 @@ def test_wrist_settings_draft_protection_and_persistence(app_url, browser_page):
     visit(page, app_url, "/settings")
     assert page.locator('[data-setting="chart_seconds"]').input_value() == str(new_seconds)
     # 刷新后从服务读取已保存值；第二份草稿放弃后不能覆盖保存结果。
-    visit(page, app_url, "/wrist")
+    visit(page, app_url)
     page.locator('.map-node[data-jump="settings"]').click()
-    for _ in range(2):
-        wrist_key(page, "ArrowDown")
+    wrist_key(page, "ArrowDown")
     wrist_screen(page, "settings", f"电脑端图表时长：最近 {new_seconds} 秒")
     wrist_key(page, "Enter")
     wrist_key(page, "ArrowDown")
@@ -378,8 +386,7 @@ def test_wrist_settings_draft_protection_and_persistence(app_url, browser_page):
     wrist_screen(page, "face")
     assert page.request.get(app_url + "/api/settings").json()["chart_seconds"] == new_seconds
     page.locator('.map-node[data-jump="settings"]').click()
-    for _ in range(2):
-        wrist_key(page, "ArrowDown")
+    wrist_key(page, "ArrowDown")
     wrist_screen(page, "settings", f"电脑端图表时长：最近 {new_seconds} 秒")
     # 不重载应用：电脑端保存后，恢复保留的腕端设置栈必须同步服务新值。
     desktop_seconds = saved["chart_seconds"]
@@ -390,7 +397,7 @@ def test_wrist_settings_draft_protection_and_persistence(app_url, browser_page):
     ) as desktop_saved:
         page.locator("#save-settings").click()
     assert desktop_saved.value.json()["chart_seconds"] == desktop_seconds
-    page.locator('[data-nav="/wrist"]').click()
+    page.locator('[data-nav="/"]').click()
     wrist_screen(page, "settings", f"电脑端图表时长：最近 {desktop_seconds} 秒")
     # 接着只改刷新率并保存，不能把电脑端刚保存的图表时长回写成旧值。
     new_hz = 5 if saved["ui_hz"] == 10 else 10
@@ -415,12 +422,18 @@ def test_wrist_settings_draft_protection_and_persistence(app_url, browser_page):
 
 def test_wrist_buttons_complete_shared_session_and_independent_replay(app_url, browser_page):
     page = browser_page
-    visit(page, app_url, "/wrist")
+    if not page.request.get(app_url + "/api/bootstrap").json()["capabilities"]["qemu"]:
+        pytest.skip("Build QEMU to run firmware wrist verification")
+    visit(page, app_url)
     wrist_key(page, "Enter")
     wrist_screen(page, "menu", "新建演示")
     wrist_key(page, "Enter")
     wrist_screen(page, "start")
-    for _ in range(4):
+    wrist_key(page, "ArrowDown")
+    wrist_screen(page, "start", "处理环境：FreeRTOS / QEMU")
+    wrist_key(page, "Enter")
+    wrist_screen(page, "start", "处理环境：FreeRTOS / QEMU")
+    for _ in range(3):
         wrist_key(page, "ArrowDown")
     wrist_screen(page, "start", "演示速度：1 倍")
     wrist_key(page, "Enter")
@@ -434,6 +447,8 @@ def test_wrist_buttons_complete_shared_session_and_independent_replay(app_url, b
     ) as created:
         wrist_key(page, "Enter")
     sid = created.value.json()["id"]
+    assert created.value.request.post_data_json["execution_mode"] == "FREERTOS_QEMU"
+    assert created.value.json()["execution_mode"] == "FREERTOS_QEMU"
     wrist_screen(page, "monitor")
     page.locator("#main").focus()
     page.keyboard.down("Enter")
@@ -456,6 +471,7 @@ def test_wrist_buttons_complete_shared_session_and_independent_replay(app_url, b
     expect(page.locator("#wrist-stage")).to_have_attribute("data-page", "4")
     expect(page.locator("#stage-session")).to_have_text("最近演示：已完成", timeout=60000)
     completed = page.request.get(app_url + f"/api/sessions/{sid}").json()
+    assert completed["execution_mode"] == "FREERTOS_QEMU"
     assert completed["engine_time_us"] == 134_000_000
     assert len(completed["key_windows"]) == 3
     wrist_key(page, "Escape")
@@ -509,7 +525,7 @@ def test_wrist_new_comparison_survives_delayed_initial_list(app_url, browser_pag
 
     page.route("**/api/comparisons", comparison_requests)
     page.route("**/api/comparisons/wrist-race-job", lambda route: route.fulfill(json=job))
-    visit(page, app_url, "/wrist")
+    visit(page, app_url)
     page.locator('.map-node[data-jump="compare"]').click()
     wrist_screen(page, "compare")
     wrist_key(page, "ArrowDown")
@@ -523,4 +539,45 @@ def test_wrist_new_comparison_survives_delayed_initial_list(app_url, browser_pag
         delayed_lists[0].fulfill(json={"items": []})
     assert polled.value.json()["id"] == job["id"]
     wrist_screen(page, "compare", "停止比较")
+    assert not page.errors
+
+
+def test_wrist_default_home_alias_and_first_key_after_long_idle(app_url, browser_page):
+    page = browser_page
+    page.clock.install()
+    # 首次打开没有 hash 时直接进入腕端，旧 /wrist 地址继续兼容。
+    page.goto(app_url, wait_until="networkidle")
+    wrist_screen(page, "face")
+    expect(page.locator('[data-nav="/"]')).to_have_class("nav-item active")
+    assert page.locator(".topbar").is_hidden()
+    guide = page.locator("#keyboard-guide")
+    expect(guide).to_be_in_viewport(ratio=1)
+    expect(page.locator("#keyboard-title")).to_have_text("用键盘，直接操控手表")
+    expect(page.locator("#keyboard-help")).to_contain_text("无需点击表盘")
+    expect(page.locator(".keyboard-keys button")).to_have_count(4)
+    for key, label in (("back", "Esc"), ("up", "↑"), ("down", "↓"), ("ok", "Enter")):
+        expect(guide.locator(f'[data-key="{key}"]')).to_contain_text(label)
+    guide.locator('[data-key="ok"]').click()
+    wrist_screen(page, "menu", "新建演示")
+    guide.locator('[data-key="back"]').click()
+    wrist_screen(page, "face")
+    canvas = page.locator("#wrist-screen")
+    before = canvas.evaluate("element => getComputedStyle(element).filter")
+    page.clock.fast_forward(10 * 60 * 1000)
+    assert canvas.evaluate("element => getComputedStyle(element).filter") == before
+    wrist_screen(page, "face")
+    # 长期无操作后的第一次确认键直接打开菜单，无需先唤醒。
+    wrist_key(page, "Enter")
+    wrist_screen(page, "menu", "新建演示")
+    # /wrist 与 / 属于同一腕端页面；仅切换 hash 时保留当前菜单状态。
+    visit(page, app_url, "/wrist")
+    wrist_screen(page, "menu", "新建演示")
+    visit(page, app_url)
+    wrist_screen(page, "menu", "新建演示")
+    page.locator('[data-nav="/workbench"]').click()
+    page.locator("#session-name").wait_for()
+    expect(page.locator("#session-source")).to_have_value("FreeRTOS / QEMU")
+    expect(page.locator("#session-source")).not_to_be_editable()
+    visit(page, app_url, "/settings")
+    assert page.locator('[data-setting="screen_timeout_s"]').count() == 0
     assert not page.errors
