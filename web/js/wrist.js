@@ -1,9 +1,10 @@
-// 腕端显示模块：以 240×280 帧缓冲模拟腕表屏幕，由四个实体按键驱动全部功能页面。
+// 腕端显示模块：以 240×280 帧缓冲模拟腕表屏幕，支持屏幕点按、滑动及键盘/实体按键。
 // 页面只调用矩形、圆弧、文字和折线等固定分辨率绘图原语，输出前量化为 RGB565，便于对照移植到固件 UI 任务。
 
 export const PANEL = {width: 240, height: 280, radius: 36, fps: 30};
 const W = PANEL.width, H = PANEL.height, BAR = 34, TOP = 40, BOTTOM = 268;
 const HOLD_MS = {back: 800, ok: 1200}, HOLD_HINT_MS = 250, REPEAT_DELAY = 450, REPEAT_MS = 110, SLIDE_MS = 170, TOAST_MS = 2800;
+const NAV_TOP = 246, DRAG_PX = 8, SWIPE_PX = 36;
 
 // 设备调色板：黑底保证户外对比度，颜色只用于表达脉率与数据状态。
 const C = {
@@ -37,7 +38,7 @@ const WINDOW_STYLE = {
 };
 const EVENT = {CREATED: '演示记录已创建', PREPARE_STARTED: '开始读取起点前数据', T0_LOCKED: '已到恢复起点', WINDOW_RESULT: '窗口处理完成', FINALIZING: '正在保存结果', COMPLETED: '演示完成', CANCELLED: '演示停止'};
 const KEY_LABEL = {back: '返回', up: '上', ok: '确认', down: '下'};
-const KIND_LABEL = {short: '短按', long: '长按', repeat: '按住', click: '点击'};
+const KIND_LABEL = {short: '短按', long: '长按', repeat: '按住', click: '点击', tap: '点击', swipe: '滑动', wheel: '滚动'};
 const KEYMAP = {ArrowUp: 'up', ArrowDown: 'down', Enter: 'ok', ' ': 'ok', Escape: 'back', Backspace: 'back', ArrowLeft: 'back', ArrowRight: 'ok'};
 const PHASES = [0, 5, 10, 15];
 const NO_LINE_START = '，。、；：？！）》」』…%,.;:?!)';
@@ -197,6 +198,7 @@ class Gfx {
 
 // 16×16 栅格内的线形图标，以原点为中心绘制。
 const ICON = {
+  back(c) { c.beginPath(); c.moveTo(3, -6); c.lineTo(-3, 0); c.lineTo(3, 6); c.stroke(); },
   play(c) { c.beginPath(); c.moveTo(-4, -6); c.lineTo(6, 0); c.lineTo(-4, 6); c.closePath(); c.fill(); },
   pause(c) { c.fillRect(-5, -6, 3.5, 12); c.fillRect(1.5, -6, 3.5, 12); },
   restart(c) { c.fillRect(-6, -6, 2.2, 12); c.beginPath(); c.moveTo(6, -6); c.lineTo(-2.5, 0); c.lineTo(6, 6); c.closePath(); c.fill(); },
@@ -366,17 +368,23 @@ function drawList(g, s, items, {top = TOP, bottom = BOTTOM, x = 10, w = 218, gap
   const total = Math.max(0, y - gap);
   s.focus = clamp(s.focus, 0, Math.max(0, items.length - 1));
   const focused = rows[s.focus];
-  if (focused) {
+  if (focused && !s.manualScroll) {
     if (focused.y < s.scrollTarget) s.scrollTarget = focused.y;
     if (focused.y + focused.h > s.scrollTarget + view) s.scrollTarget = focused.y + focused.h - view;
   }
   s.scrollTarget = clamp(s.scrollTarget, 0, Math.max(0, total - view));
   s.scroll += (s.scrollTarget - s.scroll) * (s.reduced ? 1 : .38);
   if (Math.abs(s.scrollTarget - s.scroll) < .5) s.scroll = s.scrollTarget;
+  // 保存这一帧真正可见的裁剪行，触点不使用未滚动的原始坐标。
+  s.listLayout = {top, bottom, maxScroll: Math.max(0, total - view), rows: []};
   g.clip(0, top, W, view, () => {
     items.forEach((item, i) => {
       const row = rows[i], ry = top + row.y - s.scroll;
-      if (ry + row.h >= top && ry <= bottom) drawRow(g, item, x, Math.round(ry), w, row.h, i === s.focus);
+      if (ry + row.h >= top && ry <= bottom) {
+        const drawnY = Math.round(ry), visibleY = Math.max(top, drawnY), visibleEnd = Math.min(bottom, drawnY + row.h);
+        drawRow(g, item, x, drawnY, w, row.h, i === s.focus);
+        if (visibleEnd > visibleY) s.listLayout.rows.push({index: i, x, y: visibleY, w, h: visibleEnd - visibleY});
+      }
     });
   });
   if (total > view) {
@@ -388,10 +396,12 @@ function drawList(g, s, items, {top = TOP, bottom = BOTTOM, x = 10, w = 218, gap
 function listKeys(os, s, items, key) {
   if (!items.length) return false;
   if (key === 'up' || key === 'down') {
+    s.manualScroll = false;
     s.focus = (s.focus + (key === 'down' ? 1 : items.length - 1)) % items.length;
     return true;
   }
   if (key === 'ok') {
+    if (s.busy || s.loading) return true;
     const item = items[s.focus];
     if (!item) return false;
     if (item.disabled) { os.toast(typeof item.disabled === 'string' ? item.disabled : '当前不可用', 'info'); return true; }
@@ -405,17 +415,28 @@ const rowLabel = item => !item ? '' : item.kind === 'note' ? item.text : ['info'
 function list(def) {
   return {
     ...def,
+    list: true,
     focusLabel: (os, s) => rowLabel(def.items(os, s)[s.focus]),
     animate: (os, s) => !!s.loading || !!s.busy || def.animate?.(os, s),
     draw(g, os, s, now) {
       const items = def.items(os, s);
       if (!items.length) {
+        s.listLayout = null;
+        if (!s.loading) os.hit(10, TOP, 220, BOTTOM - TOP, () => os.dispatch('ok', 'tap', '屏幕'), 'empty');
         if (s.loading) return drawMessage(g, '正在读取', '', {icon: 'spin', now});
         if (s.error) return drawMessage(g, '读取失败', `${s.error} 按确认键重试。`, {icon: 'cross', color: C.pulse});
         const [title, text, icon, color] = def.empty?.(os, s) || ['没有内容', ''];
         return drawMessage(g, title, text, {icon, color, now});
       }
       drawList(g, s, items);
+      for (const row of s.listLayout.rows) {
+        const item = items[row.index];
+        os.hit(row.x, row.y, row.w, row.h, () => {
+          if (s.busy || s.loading) return;
+          s.focus = row.index; s.manualScroll = true;
+          os.dispatch('ok', 'tap', '屏幕');
+        }, `row:${row.index}:${rowLabel(item)}`);
+      }
       def.after?.(g, os, s, now);
     },
     key(os, s, key, kind) {
@@ -1210,6 +1231,7 @@ class WristOS {
     this.seen = {sid: undefined};
     this.log = []; this.noteText = '';
     this.running = false; this.interactive = false; this.target = null; this.root = null; this.hooks = {};
+    this.hits = []; this.hitScreen = null; this.pointer = null;
     this.frame = this.frame.bind(this);
   }
 
@@ -1396,6 +1418,7 @@ class WristOS {
   // —— 按键：上/下立即响应并可连续移动；返回与确认区分短按和长按 ——
   keyDown(key) {
     if (this.held[key]) return;
+    this.cancelPointer();
     const now = performance.now(), held = this.held[key] = {start: now};
     this.pressVisual(key, true);
     if (key === 'up' || key === 'down') {
@@ -1428,11 +1451,11 @@ class WristOS {
     this.held = {}; this.keyboard = {}; this.hold = null;
   }
   pressVisual(key, down) { this.root?.querySelectorAll(`[data-key="${key}"]`).forEach(el => el.classList.toggle('pressed', down)); }
-  dispatch(key, kind) {
+  dispatch(key, kind, source) {
     const before = this.top(), depth = this.stack.length, page = before.page, focus = before.focus;
     let handled = SCREENS[before.id].key?.(this, before, key, kind);
     if (!handled && key === 'back') handled = kind === 'long' ? this.home() : this.pop();
-    if (kind !== 'repeat') this.record(key, kind, this.resultOf(before, depth, page, focus));
+    if (kind !== 'repeat') this.record(source || key, kind, this.resultOf(before, depth, page, focus));
     this.touch(); this.changed();
   }
   resultOf(before, depth, page, focus) {
@@ -1500,7 +1523,156 @@ class WristOS {
     this.applyBacklight();
     this.touch();
   }
+  // 命中区域采用固定屏幕坐标；列表由本帧可见的裁剪行提供区域。
+  hit(x, y, w, h, run, id) { this.hits.push({x, y, w, h, run, id}); }
+  hitAt(point) {
+    return this.hits.findLast(hit => point.x >= hit.x && point.x < hit.x + hit.w && point.y >= hit.y && point.y < hit.y + hit.h);
+  }
+  inputBlocked(s) {
+    return !this.running || !this.interactive || this.top() !== s || this.hitScreen !== s
+      || !!(this.trans && performance.now() - this.trans.start < SLIDE_MS);
+  }
+  activateHit(hit, point) {
+    const before = this.top(), depth = this.stack.length, page = before.page, focus = before.focus, previous = this.log[0];
+    hit.run(point);
+    if (this.log[0] === previous) this.record('屏幕', 'tap', this.resultOf(before, depth, page, focus));
+    this.changed();
+  }
+  registerTouch(s) {
+    if (s.id === 'face') {
+      this.hit(0, 0, W, H, () => this.dispatch('ok', 'tap', '屏幕'), 'menu');
+      if (this.active()) this.hit(14, 122, 212, 118, () => this.push('monitor'), 'active');
+      else if (this.cache.recent) this.hit(14, 166, 212, 76, () => this.push('record', {recordId: idOf(this.cache.recent)}), 'recent');
+    } else if (s.id === 'confirm') {
+      s.options.forEach((option, i) => this.hit(24, 196 + i * 40, 192, 34, () => {
+        if (s.busy) return;
+        s.focus = i; this.dispatch('ok', 'tap', '屏幕');
+      }, `confirm:${i}`));
+    } else if (s.id === 'replay' && s.snapshot) {
+      REPLAY_CONTROLS.forEach((control, i) => this.hit(17 + i * 42, 242, 38, 28, () => {
+        if (s.busy) return;
+        s.focus = i; this.dispatch('ok', 'tap', '屏幕');
+      }, `replay:${control.id}`));
+      this.hit(18, 96, 204, 16, point => {
+        if (s.busy) return;
+        const first = s.snapshot.first_us ?? 0, duration = s.snapshot.duration_us ?? 134e6;
+        replayCommand(this, s, 'seek', {time_us: Math.round(first + clamp(point.x - 18, 0, 204) / 204 * (duration - first))});
+      }, 'replay:seek');
+    } else if (s.id === 'info') {
+      this.hit(0, TOP, W, BOTTOM - TOP, () => this.dispatch('ok', 'tap', '屏幕'), 'info:close');
+    }
+    if (s.id === 'monitor' || s.id === 'system') {
+      ['up', 'ok', 'down'].forEach((key, i) => this.hit(8 + i * 78, NAV_TOP, 68, H - NAV_TOP,
+        () => this.dispatch(key, 'tap', '屏幕'), `nav:${key}`));
+    }
+    if (this.stack.length > 1) this.hit(0, 0, 38, BAR, () => this.dispatch('back', 'tap', '屏幕'), 'back');
+  }
+  drawFooter(s) {
+    const g = this.overlay;
+    g.rect(0, NAV_TOP, W, H - NAV_TOP, C.bg);
+    const middle = s.id === 'system' ? '刷新' : this.live() ? '操作' : '新建';
+    ['上一页', middle, '下一页'].forEach((label, i) => {
+      const x = 8 + i * 78;
+      g.rrect(x, NAV_TOP + 3, 68, 27, 10, i === 1 ? '#173575' : C.card, C.line);
+      g.text(label, x + 34, NAV_TOP + 22, {size: 12, align: 'center', color: i === 1 ? '#c8dcff' : C.mist});
+    });
+  }
+  screenPoint(event, canvas) {
+    const rect = canvas.getBoundingClientRect();
+    const x = (event.clientX - rect.left) * W / rect.width, y = (event.clientY - rect.top) * H / rect.height;
+    // CSS 缩放和设备像素比只影响显示，触点始终映射到面板逻辑坐标。
+    const r = PANEL.radius, cx = clamp(x, r, W - r), cy = clamp(y, r, H - r);
+    return {x, y, inside: x >= 0 && x <= W && y >= 0 && y <= H && Math.hypot(x - cx, y - cy) <= r};
+  }
+  cancelPointer() {
+    const pointer = this.pointer;
+    this.pointer = null;
+    if (!pointer) return;
+    pointer.canvas.classList.remove('dragging');
+    if (pointer.canvas.hasPointerCapture?.(pointer.id)) pointer.canvas.releasePointerCapture(pointer.id);
+  }
+  bindTouch(canvas) {
+    if (!canvas) return () => {};
+    const down = event => {
+      if (event.isPrimary === false) { this.cancelPointer(); return; }
+      if (event.button > 0 || this.pointer) return;
+      const s = this.top(), point = this.screenPoint(event, canvas);
+      if (!point.inside || this.inputBlocked(s)) return;
+      event.preventDefault();
+      canvas.focus({preventScroll: true});
+      const hit = this.hitAt(point);
+      this.pointer = {id: event.pointerId, canvas, s, start: point, last: point, moved: false,
+        hit: hit?.id, scroll: s.scroll, offset: s.offset || 0};
+      canvas.setPointerCapture?.(event.pointerId);
+    };
+    const move = event => {
+      const p = this.pointer;
+      if (!p || p.id !== event.pointerId) return;
+      event.preventDefault();
+      if (this.top() !== p.s) { this.cancelPointer(); return; }
+      const point = this.screenPoint(event, canvas), dx = point.x - p.start.x, dy = point.y - p.start.y;
+      p.last = point;
+      if (Math.hypot(dx, dy) >= DRAG_PX) { p.moved = true; canvas.classList.add('dragging'); }
+      if (!p.moved || Math.abs(dy) <= Math.abs(dx)) return;
+      if (p.s.listLayout) {
+        p.s.manualScroll = true;
+        p.s.scrollTarget = clamp(p.scroll - dy, 0, p.s.listLayout.maxScroll);
+        p.s.scroll = p.s.scrollTarget;
+        p.scrolled = true;
+      } else if (p.s.id === 'info') {
+        p.s.offset = clamp(p.offset - dy, 0, p.s.max || 0);
+        p.scrolled = true;
+      }
+      this.touch();
+    };
+    const up = event => {
+      const p = this.pointer;
+      if (!p || p.id !== event.pointerId) return;
+      event.preventDefault();
+      const point = this.screenPoint(event, canvas), dx = point.x - p.start.x, dy = point.y - p.start.y;
+      this.cancelPointer();
+      if (this.inputBlocked(p.s)) return;
+      if (p.moved || Math.hypot(dx, dy) >= DRAG_PX) {
+        if (dx >= SWIPE_PX && dx > Math.abs(dy)) this.dispatch('back', 'swipe', '屏幕');
+        else if (p.scrolled) { this.record('屏幕', 'swipe', '滚动内容'); this.changed(); }
+        else if (SCREENS[p.s.id].pages && Math.max(Math.abs(dx), Math.abs(dy)) >= SWIPE_PX) {
+          this.dispatch(Math.abs(dy) > Math.abs(dx) ? dy < 0 ? 'down' : 'up' : 'down', 'swipe', '屏幕');
+        }
+        return;
+      }
+      if (!point.inside) return;
+      const hit = this.hitAt(point);
+      if (hit && hit.id === p.hit) this.activateHit(hit, point);
+    };
+    const cancel = event => { if (this.pointer?.id === event.pointerId) this.cancelPointer(); };
+    const wheel = event => {
+      const s = this.top();
+      if (this.inputBlocked(s)) return;
+      event.preventDefault();
+      const factor = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? H : 1;
+      const delta = event.deltaY * factor * H / canvas.getBoundingClientRect().height;
+      if (s.listLayout) {
+        s.manualScroll = true;
+        s.scrollTarget = clamp(s.scrollTarget + delta, 0, s.listLayout.maxScroll);
+        s.scroll = s.scrollTarget;
+        this.record('屏幕', 'wheel', '滚动列表'); this.changed();
+      } else if (s.id === 'info') {
+        s.offset = clamp(s.offset + delta, 0, s.max || 0); this.touch();
+      } else if (SCREENS[s.id].pages && delta && performance.now() - (this.lastWheel || -Infinity) > 150) {
+        this.lastWheel = performance.now(); this.dispatch(delta > 0 ? 'down' : 'up', 'wheel', '屏幕');
+      }
+    };
+    const handlers = {pointerdown: down, pointermove: move, pointerup: up, pointercancel: cancel, lostpointercapture: cancel};
+    for (const [type, handler] of Object.entries(handlers)) canvas.addEventListener(type, handler);
+    canvas.addEventListener('wheel', wheel, {passive: false});
+    return () => {
+      this.cancelPointer();
+      for (const [type, handler] of Object.entries(handlers)) canvas.removeEventListener(type, handler);
+      canvas.removeEventListener('wheel', wheel);
+    };
+  }
   bind(root) {
+    const unbindTouch = this.bindTouch(this.target);
     const keyOfTarget = event => event.target.closest?.('[data-key]');
     const down = event => {
       const el = keyOfTarget(event);
@@ -1533,7 +1705,7 @@ class WristOS {
       delete this.keyboard[event.code];
       this.keyUp(mapped);
     };
-    const blur = () => this.releaseAll();
+    const blur = () => { this.releaseAll(); this.cancelPointer(); };
     root.addEventListener('pointerdown', down);
     root.addEventListener('pointerup', up);
     root.addEventListener('pointercancel', up);
@@ -1543,6 +1715,7 @@ class WristOS {
     window.addEventListener('keyup', keyup);
     window.addEventListener('blur', blur);
     this.unbind = () => {
+      unbindTouch();
       root.removeEventListener('pointerdown', down);
       root.removeEventListener('pointerup', up);
       root.removeEventListener('pointercancel', up);
@@ -1568,8 +1741,17 @@ class WristOS {
   // 一帧：页面内容 → 切换动画合成 → 状态栏与提示 → RGB565 量化 → 输出到屏幕画布。
   render(now) {
     const s = this.top(), def = SCREENS[s.id], g = this.g;
+    this.hits = []; this.hitScreen = s;
     g.clear();
+    const paged = s.id === 'monitor' || s.id === 'system';
+    if (paged) {
+      // 为屏幕内的翻页按钮保留底栏；旧页面坐标在内容区内等比压缩，不遮挡数据。
+      g.c.save(); g.c.beginPath(); g.c.rect(0, BAR, W, NAV_TOP - BAR); g.c.clip();
+      g.c.translate(0, BAR); g.c.scale(1, (NAV_TOP - BAR) / (H - BAR)); g.c.translate(0, -BAR);
+    }
     def.draw(g, this, s, now);
+    if (paged) g.c.restore();
+    this.registerTouch(s);
     const out = this.out;
     out.fillStyle = C.bg; out.fillRect(0, 0, W, H);
     const t = this.trans;
@@ -1583,8 +1765,12 @@ class WristOS {
       out.restore();
       if (p >= 1) this.trans = null;
     } else out.drawImage(this.layer, 0, 0);
-    if (def.bar !== false) this.drawBar(s);
+    if (paged) this.drawFooter(s);
     this.drawOverlays(now);
+    // 返回入口始终可见；提示不能遮挡它，也不能吞掉返回操作。
+    if (def.bar !== false) this.drawBar(s);
+    else if (this.stack.length > 1) this.drawBack();
+    if (this.stack.length > 1) this.hit(0, 0, 38, BAR, () => this.dispatch('back', 'tap', '屏幕'), 'back');
     quantize(out);
     if (this.target) {
       const ctx = this.target.getContext('2d');
@@ -1594,11 +1780,17 @@ class WristOS {
   drawBar(s) {
     const g = this.overlay;
     g.rect(0, 0, W, BAR, C.bg);
-    g.text(this.titleOf(s), 24, 25, {size: 14, weight: 600, max: 118});
+    this.drawBack();
+    g.text(this.titleOf(s), 42, 25, {size: 14, weight: 600, max: 102});
     const width = g.text(clock(new Date()), 216, 25, {size: 16, num: true, weight: 700, align: 'right'});
     let x = 216 - width - 22;
     connectionGlyph(g, x, 24, this.connected());
     if (this.active()) g.circle(x - 10, 19, 3.5, C.pulse);
+  }
+  drawBack() {
+    const g = this.overlay;
+    g.rrect(7, 6, 29, 25, 9, C.card);
+    g.icon('back', 22, 19, C.ink, .85);
   }
   drawOverlays(now) {
     const g = this.overlay;
@@ -1607,6 +1799,7 @@ class WristOS {
       g.rrect(26, 222, 188, 40, 20, '#16202b');
       g.clip(26, 222, 188 * p, 40, () => g.rrect(26, 222, 188, 40, 20, withAlpha(this.hold.color, .45)));
       g.text(this.hold.label, 120, 247, {size: 14, align: 'center'});
+      this.hit(26, 222, 188, 40, () => {}, 'hold');
     }
     if (!this.current && this.queue.length) this.current = {...this.queue.shift(), start: now};
     const toast = this.current;
@@ -1615,7 +1808,8 @@ class WristOS {
     if (age > toast.ms) { this.current = null; this.touch(); return; }
     const k = Math.min(clamp(age / 180, 0, 1), clamp((toast.ms - age) / 180, 0, 1)), ease = this.reduced ? 1 : 1 - (1 - k) ** 3;
     const body = toast.body ? g.lines(toast.body, 164, 12).slice(0, 3) : [];
-    const h = 38 + body.length * 17, y = Math.round(-h + ease * (h + 8));
+    const h = 38 + body.length * 17, inset = this.top().id === 'face' ? 8 : BAR + 4;
+    const y = Math.round(-h + ease * (h + inset));
     const error = toast.kind === 'error';
     g.rrect(10, y, 220, h, 18, error ? '#2a0f14' : '#17212c', error ? '#7a2732' : '#263445');
     const tint = error ? C.pulse : toast.kind === 'notify' ? C.pulse : C.mint;
@@ -1623,6 +1817,9 @@ class WristOS {
     g.icon(error ? 'cross' : toast.kind === 'notify' ? 'heart' : 'check', 34, y + 24, tint, error ? .8 : .75);
     g.text(toast.title, 54, y + 29, {size: 14, weight: 600, max: 166});
     body.forEach((row, i) => g.text(row, 54, y + 48 + i * 17, {size: 12, color: C.mist}));
+    // 提示覆盖屏幕内容时，先关闭提示，不能穿透到下面的返回或菜单项。
+    const top = Math.max(0, y), bottom = Math.min(H, y + h);
+    if (bottom > top) this.hit(10, top, 220, bottom - top, () => { this.current = null; this.touch(); }, 'toast');
   }
 }
 

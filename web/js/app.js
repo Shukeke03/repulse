@@ -297,18 +297,19 @@ function eventName(type) {
   return ({CREATED:'演示记录已创建',PREPARE_STARTED:'开始读取起点前数据',T0_LOCKED:'已到原始恢复起点',WINDOW_RESULT:'窗口处理完成',FINALIZING:'正在保存结果',COMPLETED:'演示完成',CANCELLED:'演示停止',SERVICE_SHUTDOWN:'服务退出，演示中断'})[type] || '处理状态已更新';
 }
 
-// 腕端显示预览：占满导航栏右侧区域，按设备分辨率绘制屏幕，全部功能都用四个实体按键操作。
+// 腕端显示预览：占满导航栏右侧，屏幕支持鼠标、触屏、键盘与四个实体按键。
 function wristView() {
   const keys = [['back','返回','Esc','返回上一级；长按回到表盘'], ['up','上','↑','上一项或上一页；按住连续移动'], ['down','下','↓','下一项或下一页；按住连续移动'], ['ok','确认','Enter','进入或执行；恢复过程中长按停止演示']];
   const label = Object.fromEntries(keys.map(([key,text]) => [key,text]));
   const pusher = (key, side, row) => `<button type="button" class="pusher ${side} ${row}" data-key="${key}" aria-label="${label[key]}键"></button><span class="engrave ${side} ${row}" aria-hidden="true">${label[key]}</span>`;
   const tree = list => `<ul>${list.map(item => `<li><button type="button" class="map-node" data-jump="${item.id}">${item.label}</button>${item.pages ? `<div class="map-pages">${item.pages.map((page,i) => `<button type="button" class="map-page" data-jump="${item.id}" data-page="${i}">${page}</button>`).join('')}</div>` : ''}${item.children ? tree(item.children) : ''}</li>`).join('')}</ul>`;
   main().innerHTML = `<div class="wrist-stage" id="wrist-stage">
-      <header class="stage-head"><h1>腕端显示预览</h1><p>按 ${PANEL.width}×${PANEL.height} 设备分辨率逐像素绘制，全部功能都用四个实体按键操作。</p><div class="stage-status"><span id="stage-connection"></span><span id="stage-session"></span></div></header>
-      <nav class="screen-map" aria-label="腕端页面结构"><h2>页面结构</h2><p>当前页面随按键操作高亮。点击可直接跳转，实际腕表只用按键切换。</p><div class="map-tree">${tree(SCREEN_MAP)}</div></nav>
+      <header class="stage-head"><h1>腕端显示预览</h1><p>${PANEL.width}×${PANEL.height} 交互屏幕，支持点按、滑动，也可使用键盘与四个按键。</p><div class="stage-status"><span id="stage-connection"></span><span id="stage-session"></span></div></header>
+      <nav class="screen-map" aria-label="腕端页面结构"><h2>页面结构</h2><p>当前页面随屏幕和按键操作高亮。也可点击这里直接跳转。</p><div class="map-tree">${tree(SCREEN_MAP)}</div></nav>
       <div class="device-area" id="device-area">
-        <div class="watch" id="watch"><div class="strap top" aria-hidden="true"></div><div class="strap bottom" aria-hidden="true"></div><div class="case"><div class="glass"><canvas id="wrist-screen" width="${PANEL.width}" height="${PANEL.height}" role="img" aria-label="腕端屏幕"></canvas></div></div>${pusher('back','left','upper')}${pusher('up','left','lower')}${pusher('ok','right','upper')}${pusher('down','right','lower')}</div>
+        <div class="watch" id="watch"><div class="strap top" aria-hidden="true"></div><div class="strap bottom" aria-hidden="true"></div><div class="case"><div class="glass"><canvas id="wrist-screen" width="${PANEL.width}" height="${PANEL.height}" role="group" aria-roledescription="交互式手表屏幕" tabindex="0" aria-label="腕端屏幕" aria-describedby="touch-help keyboard-help"></canvas></div></div>${pusher('back','left','upper')}${pusher('up','left','lower')}${pusher('ok','right','upper')}${pusher('down','right','lower')}</div>
         <section class="keyboard-guide" id="keyboard-guide" aria-labelledby="keyboard-title">
+          <p class="touch-guide" id="touch-help"><strong>屏幕可点按、可滑动</strong><span>鼠标与手机触屏都能操作</span></p>
           <div class="keyboard-guide-title">${icon('keyboard')}<h2 id="keyboard-title">用键盘，直接操控手表</h2></div>
           <p id="keyboard-help">无需点击表盘，按 <strong>Enter</strong> 打开菜单。下方按键也可点击。</p>
           <div class="keyboard-keys" aria-label="腕端按键">${[['back','Esc','返回'],['up','↑','上一项'],['down','↓','下一项'],['ok','Enter','确认']].map(([key,kbd,text]) => `<button type="button" data-key="${key}" aria-label="${kbd}：${text}"><kbd>${kbd}</kbd><span>${text}</span></button>`).join('')}</div>
@@ -316,10 +317,11 @@ function wristView() {
         <p class="sr-only" id="wrist-live" aria-live="polite"></p>
       </div>
       <aside class="device-notes">
+        <section><h2>直接操作屏幕</h2><p class="interaction-help">点按菜单或按钮执行操作；上下滑动浏览列表。点左上角箭头或右划返回，恢复过程和系统状态可用屏幕底部按钮切页。</p></section>
         <section><h2>按键</h2><dl class="key-legend">${keys.map(([,text,kbd,help]) => `<dt>${text}</dt><dd><kbd>${kbd}</kbd>${help}</dd>`).join('')}</dl></section>
-        <section><h2>显示与输入</h2><dl class="spec-list"><dt>屏幕</dt><dd>1.69 英寸 IPS，${PANEL.width}×${PANEL.height} 像素，圆角显示区</dd><dt>颜色</dt><dd>RGB565 16 位，每帧量化后输出</dd><dt>刷新</dt><dd>数据按设置刷新，动画不超过 ${PANEL.fps} 帧/秒</dd><dt>输入</dt><dd>4 个实体按键，区分短按、长按和按住</dd><dt>提示</dt><dd>屏幕常亮；窗口结果到达时提示并模拟振动</dd></dl></section>
-        <section><h2>按键记录</h2><ol class="input-log" id="input-log"><li class="empty-log">按下任意按键后，这里显示操作结果。</li></ol></section>
-        <p class="stage-note">画面在浏览器中模拟，未连接实体腕表，数据来自本机服务。显示驱动与按键尚未上板验证。</p>
+        <section><h2>显示与输入</h2><dl class="spec-list"><dt>屏幕</dt><dd>1.69 英寸 IPS，${PANEL.width}×${PANEL.height} 像素，圆角显示区</dd><dt>颜色</dt><dd>RGB565 16 位，每帧量化后输出</dd><dt>刷新</dt><dd>数据按设置刷新，动画不超过 ${PANEL.fps} 帧/秒</dd><dt>输入</dt><dd>鼠标 / 触屏点按与滑动；键盘和四个实体按键</dd><dt>提示</dt><dd>屏幕常亮；窗口结果到达时提示并模拟振动</dd></dl></section>
+        <section><h2>操作记录</h2><ol class="input-log" id="input-log"><li class="empty-log">点击屏幕或按下按键后，这里显示操作结果。</li></ol></section>
+        <p class="stage-note">画面在浏览器中模拟，未连接实体腕表，数据来自本机服务。显示、触摸与按键驱动尚未上板验证。</p>
       </aside>
     </div>`;
   const stage = document.querySelector('#wrist-stage'), canvas = document.querySelector('#wrist-screen');
@@ -328,7 +330,7 @@ function wristView() {
     const area = document.querySelector('#device-area'), watch = document.querySelector('#watch');
     if (!area || !watch) return;
     const rect = area.getBoundingClientRect(), mobile = matchMedia('(max-width: 767px)').matches, dpr = devicePixelRatio || 1;
-    const raw = Math.min((rect.width - 24) / 312, mobile ? Infinity : (rect.height - 160) / 400);
+    const raw = Math.min((rect.width - 24) / 312, mobile ? Infinity : (rect.height - 192) / 400);
     const snapped = Math.floor(raw * dpr) / dpr, scale = snapped >= raw * .85 ? snapped : Math.max(.5, raw);
     watch.style.setProperty('--s', scale);
     watch.classList.toggle('smooth', Math.abs(scale * dpr - Math.round(scale * dpr)) > .01);

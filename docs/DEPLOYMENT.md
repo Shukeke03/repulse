@@ -12,6 +12,10 @@
 
 现有的 Tailscale `443 → 8787` 保持 tailnet 私有。本部署只增加 `8443 → 8766`。独立代理不读取 `/etc/nginx/nginx.conf` 或其他站点配置；Legion 首次安装 Nginx 时将默认 `nginx.service` 保持禁用，避免额外监听 80 端口。
 
+## Legion 当前的临时免密码设置
+
+用户已暂时关闭线上 Nginx 的 Basic 认证。该设置保存在服务器的 `/etc/repulse/nginx.conf`，仓库 `deploy/nginx.conf` 仍保留认证模板。**后续更新应保留服务器当前的免密码覆盖，不直接用仓库模板替换线上 Nginx 配置。** 本文后面的认证文件与 `401` 验收说明用于启用认证的部署；Legion 当前免密码状态下，正常请求不应再弹出登录框。恢复认证需遵循用户后续的明确安排。
+
 ## 路径与运行边界
 
 | 项目 | 路径或地址 |
@@ -118,7 +122,7 @@ sudo tailscale funnel --https=8443 off
 
 ## 更新与回滚
 
-更新前确保没有正在处理的演示，服务器仓库没有未保存修改。以下操作停止应用后备份运行目录，并记录当前代码和配置；认证文件继续保留在 `/etc/repulse/htpasswd`。每次更新使用独立备份目录。
+更新前确保没有正在处理的演示，服务器仓库没有未保存修改。以下操作停止应用后备份运行目录，并记录当前代码和配置；认证文件继续保留在 `/etc/repulse/htpasswd`。每次更新使用独立备份目录。更新命令保留服务器当前 Nginx 配置及免密码覆盖；若确需变更代理配置，先比较仓库模板与线上文件，再合并所需改动。
 
 ```sh
 cd /home/shuxing/repulse
@@ -135,7 +139,6 @@ tar -C /home/shuxing/.local/share -czf "$REPULSE_BACKUP_DIR/runtime.tar.gz" repu
 git pull --ff-only
 .venv/bin/python -m pip install -e .
 make -C firmware TARGET=qemu
-sudo install -o root -g root -m 644 deploy/nginx.conf /etc/repulse/nginx.conf
 sudo install -o root -g root -m 644 deploy/repulse.service /etc/systemd/system/repulse.service
 sudo install -o root -g root -m 644 deploy/repulse-proxy.service /etc/systemd/system/repulse-proxy.service
 sudo /usr/sbin/nginx -t -c /etc/repulse/nginx.conf
@@ -145,7 +148,7 @@ sudo systemctl restart repulse-proxy.service
 .venv/bin/python -m pip freeze > "$REPULSE_BACKUP_DIR/dependencies-after.txt"
 ```
 
-若中途出错，先处理报错或回滚，不继续运行后面的启动步骤。配置及代码回滚时，先将 `REPULSE_BACKUP_DIR` 设置为实际备份目录，然后执行：
+若中途出错，先处理报错或回滚，不继续运行后面的启动步骤。配置及代码回滚时，先将 `REPULSE_BACKUP_DIR` 设置为实际备份目录，确认其中 Nginx 配置保留当前免密码覆盖，再执行：
 
 ```sh
 cd /home/shuxing/repulse

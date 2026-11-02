@@ -2,6 +2,17 @@
 
 本文保留 2026 年 10 月 27 日基础版本与 2026 年 11 月 2 日腕端界面更新的验证结果。项目版本 0.2.0，验证平台为 macOS Apple Silicon、Miniforge Python 3.12。测试报告记录当次运行结果；后续修改应重新执行相应测试。
 
+## 2026 年 11 月 2 日：腕端屏幕点按与触摸
+
+Chromium 浏览器回归 **12 passed**，109.51 秒，0 失败、0 跳过。报告见 [touch-browser-tests.xml](verification/touch-browser-tests.xml)。保留原有九项用例，新增三项屏幕交互用例，覆盖：
+
+- 非整数 DPR 1.5、视口缩放后真实鼠标点按菜单与选项、设置保存、滚轮与拖动、离页重入和键鼠混用。
+- 360 px / DPR 3 / `has_touch` 手机模拟环境中的原生 `touchscreen.tap` 和 CDP 触摸滑动、取消事件；检查长列表滚动、系统切页、设置草稿继续编辑/放弃，拖动和取消不误执行落点项。
+- 全程使用 Canvas 点击创建真实 FreeRTOS / QEMU 演示、选择 10 倍速度、完成 134 秒处理，进入详情及独立回放，操作逐秒前进、进度定位、重新开始和关闭。
+- 返回入口在提示显示期间可用；点提示只关闭提示，不穿透到下方菜单。
+
+另检查了 1440、1280、1024、360、320 px 布局，输入提示均可见且无横向溢出；[屏幕导航截图](screenshots/14-wrist-touch.png)。Ruff 检查、31 个 Python 文件格式检查、JavaScript 语法检查和 Git 空白检查通过。触摸验证针对浏览器事件与模拟屏幕，尚未连接物理触摸控制器。
+
 ## 2026 年 11 月 2 日：Legion 公网部署
 
 在 Legion 的 Ubuntu 24.04 / WSL2 x86_64、Python 3.12 环境中构建 ARM 固件并验证数据，运行 **73 项单元和接口测试全部通过**，77.79 秒，0 失败、0 跳过；有一条第三方 TestClient 的弃用提示。报告见 [legion-unit-api.xml](verification/legion-unit-api.xml)。Linux 比较进程池显式使用 `spawn`，新增用例验证实际 QEMU 采样期间后台三策略比较能完成，固件任务和记录时钟持续运行。

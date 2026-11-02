@@ -581,3 +581,228 @@ def test_wrist_default_home_alias_and_first_key_after_long_idle(app_url, browser
     visit(page, app_url, "/settings")
     assert page.locator('[data-setting="screen_timeout_s"]').count() == 0
     assert not page.errors
+
+
+@pytest.fixture()
+def canvas_page_factory(browser_page):
+    contexts = []
+
+    def create(**options):
+        context = browser_page.context.browser.new_context(
+            accept_downloads=True, reduced_motion="reduce", **options
+        )
+        contexts.append(context)
+        page = context.new_page()
+        page.errors = []
+        page.on("pageerror", lambda error: page.errors.append(str(error)))
+        return page
+
+    yield create
+    for context in contexts:
+        context.close()
+
+
+def wrist_canvas_point(page, x, y):
+    canvas = page.locator("#wrist-screen")
+    canvas.scroll_into_view_if_needed()
+    # 数据状态先更新，命中区域在下一帧绘制；等浏览器完成绘制再执行真实指针动作。
+    page.evaluate("() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))")
+    bounds = canvas.bounding_box()
+    return bounds["x"] + x * bounds["width"] / 240, bounds["y"] + y * bounds["height"] / 280
+
+
+def wrist_canvas_tap(page, x, y, touch=False):
+    point = wrist_canvas_point(page, x, y)
+    if touch:
+        page.touchscreen.tap(*point)
+    else:
+        page.mouse.click(*point)
+
+
+def wrist_canvas_wheel(page, delta):
+    page.mouse.move(*wrist_canvas_point(page, 120, 160))
+    page.mouse.wheel(0, delta)
+    page.evaluate("() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))")
+
+
+def wrist_native_touch_drag(page, start, end=None, cancel=False):
+    # CDP 注入浏览器原生触摸序列，触发受信任的 touch/pointer 事件；不派发 DOM 仿制触屏事件。
+    x0, y0 = wrist_canvas_point(page, *start)
+    x1, y1 = wrist_canvas_point(page, *(end or start))
+    session = page.context.new_cdp_session(page)
+    try:
+        session.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x0, "y": y0}]})
+        if end:
+            for step in range(1, 9):
+                x, y = x0 + (x1 - x0) * step / 8, y0 + (y1 - y0) * step / 8
+                session.send(
+                    "Input.dispatchTouchEvent", {"type": "touchMove", "touchPoints": [{"x": x, "y": y}]}
+                )
+        session.send(
+            "Input.dispatchTouchEvent", {"type": "touchCancel" if cancel else "touchEnd", "touchPoints": []}
+        )
+    finally:
+        session.detach()
+
+
+def test_wrist_canvas_mouse_settings_scaling_drag_and_reentry(app_url, canvas_page_factory):
+    page = canvas_page_factory(viewport={"width": 1440, "height": 1000}, device_scale_factor=1.5)
+    visit(page, app_url)
+    assert page.evaluate("devicePixelRatio") == 1.5
+    wrist_canvas_tap(page, 120, 100)
+    wrist_screen(page, "menu", "新建演示")
+    wrist_canvas_wheel(page, 600)
+    wrist_canvas_tap(page, 120, 244)
+    wrist_screen(page, "settings")
+    settings = page.request.get(app_url + "/api/settings").json()
+    new_hz = 5 if settings["ui_hz"] == 10 else 10
+    # 在非整数 DPR 和视口重排后，画布坐标仍命中同一设置行与选择项。
+    page.set_viewport_size({"width": 1280, "height": 900})
+    wrist_canvas_tap(page, 120, 66)
+    wrist_screen(page, "picker")
+    wrist_canvas_tap(page, 120, 66 if new_hz == 5 else 122)
+    wrist_screen(page, "settings", f"界面刷新：每秒 {new_hz} 次")
+    wrist_canvas_wheel(page, 600)
+    with page.expect_response(
+        lambda r: r.url.endswith("/api/settings") and r.request.method == "PUT"
+    ) as saved:
+        wrist_canvas_tap(page, 120, 195)
+    assert saved.value.json()["ui_hz"] == new_hz
+    wrist_screen(page, "settings", "设置已保存")
+    wrist_canvas_tap(page, 20, 18)
+    wrist_screen(page, "menu")
+    # 保存提示仍可见时，返回入口可直接使用；点提示只关闭提示，不点击穿透到菜单。
+    wrist_canvas_tap(page, 120, 55)
+    wrist_screen(page, "menu")
+    # 列表拖动结束不执行落点项；无论滚动是否已到边界都应保持菜单。
+    page.mouse.move(*wrist_canvas_point(page, 120, 244))
+    page.mouse.down()
+    page.mouse.move(*wrist_canvas_point(page, 120, 100), steps=8)
+    page.mouse.up()
+    wrist_screen(page, "menu")
+    page.locator('[data-nav="/settings"]').click()
+    page.locator('[data-nav="/"]').click()
+    wrist_screen(page, "menu")
+    wrist_canvas_wheel(page, -600)
+    wrist_canvas_tap(page, 120, 64)
+    wrist_screen(page, "start")
+    # 单次返回只退一级；重入页面后不存在残留的重复输入监听器。
+    wrist_canvas_tap(page, 20, 18)
+    wrist_screen(page, "menu", "新建演示")
+    wrist_key(page, "ArrowDown")
+    wrist_canvas_tap(page, 120, 116)
+    wrist_screen(page, "monitor")
+    assert not page.errors
+
+
+def test_wrist_canvas_native_touch_scroll_cancel_and_mixed_keys(app_url, canvas_page_factory):
+    page = canvas_page_factory(
+        viewport={"width": 360, "height": 780}, device_scale_factor=3, is_mobile=True, has_touch=True
+    )
+    visit(page, app_url)
+    assert page.evaluate("devicePixelRatio") == 3
+    wrist_canvas_tap(page, 120, 100, touch=True)
+    wrist_screen(page, "menu")
+    wrist_native_touch_drag(page, (120, 244), (120, 60))
+    wrist_screen(page, "menu")
+    wrist_canvas_tap(page, 120, 192, touch=True)
+    wrist_screen(page, "system")
+    wrist_canvas_tap(page, 200, 262, touch=True)
+    expect(page.locator("#wrist-stage")).to_have_attribute("data-page", "1")
+    wrist_key(page, "ArrowDown")
+    expect(page.locator("#wrist-stage")).to_have_attribute("data-page", "2")
+    wrist_canvas_tap(page, 20, 18, touch=True)
+    wrist_screen(page, "menu")
+    wrist_canvas_tap(page, 120, 244, touch=True)
+    wrist_screen(page, "settings")
+    settings = page.request.get(app_url + "/api/settings").json()
+    new_hz = 5 if settings["ui_hz"] == 10 else 10
+    wrist_canvas_tap(page, 120, 66, touch=True)
+    wrist_screen(page, "picker")
+    wrist_canvas_tap(page, 120, 66 if new_hz == 5 else 122, touch=True)
+    wrist_screen(page, "settings", f"界面刷新：每秒 {new_hz} 次")
+    wrist_canvas_tap(page, 20, 18, touch=True)
+    wrist_screen(page, "confirm", "继续编辑")
+    wrist_canvas_tap(page, 120, 213, touch=True)
+    wrist_screen(page, "settings")
+    wrist_canvas_tap(page, 20, 18, touch=True)
+    wrist_screen(page, "confirm")
+    wrist_canvas_tap(page, 120, 253, touch=True)
+    wrist_screen(page, "menu")
+    assert page.request.get(app_url + "/api/settings").json()["ui_hz"] == settings["ui_hz"]
+    # 浏览器原生 touchCancel 不应激活按下的设置行，下一次完整点按仍正常。
+    wrist_native_touch_drag(page, (120, 244), cancel=True)
+    wrist_screen(page, "menu")
+    wrist_canvas_tap(page, 120, 244, touch=True)
+    wrist_screen(page, "settings")
+    assert not page.errors
+
+
+def test_wrist_canvas_mouse_qemu_creation_completion_and_replay(app_url, browser_page):
+    page = browser_page
+    if not page.request.get(app_url + "/api/bootstrap").json()["capabilities"]["qemu"]:
+        pytest.skip("Build QEMU to run firmware canvas verification")
+    page.emulate_media(reduced_motion="reduce")
+    visit(page, app_url)
+    wrist_canvas_tap(page, 120, 100)
+    wrist_canvas_tap(page, 120, 64)
+    wrist_screen(page, "start")
+    wrist_canvas_tap(page, 120, 66)
+    wrist_screen(page, "picker")
+    wrist_canvas_tap(page, 120, 122)
+    wrist_screen(page, "start")
+    wrist_canvas_wheel(page, 600)
+    wrist_canvas_tap(page, 120, 192)
+    wrist_screen(page, "picker")
+    wrist_canvas_tap(page, 120, 214)
+    wrist_screen(page, "start", "演示速度：10 倍")
+    with page.expect_response(
+        lambda r: r.url.endswith("/api/sessions") and r.request.method == "POST"
+    ) as created:
+        wrist_canvas_tap(page, 120, 244)
+    sid = created.value.json()["id"]
+    assert created.value.request.post_data_json["execution_mode"] == "FREERTOS_QEMU"
+    wrist_screen(page, "monitor")
+    wrist_canvas_tap(page, 200, 262)
+    expect(page.locator("#wrist-stage")).to_have_attribute("data-page", "1")
+    expect(page.locator("#stage-session")).to_have_text("最近演示：已完成", timeout=90000)
+    completed = page.request.get(app_url + f"/api/sessions/{sid}").json()
+    assert completed["execution_mode"] == "FREERTOS_QEMU"
+    assert completed["engine_time_us"] == 134_000_000
+    wrist_canvas_tap(page, 120, 262)
+    wrist_screen(page, "actions")
+    wrist_canvas_tap(page, 120, 168)
+    wrist_screen(page, "record")
+    expect(page.locator("#wrist-stage")).to_have_attribute("data-focus", "窗口结果")
+    with page.expect_response(
+        lambda r: r.url.endswith("/api/replays") and r.request.method == "POST"
+    ) as opened:
+        wrist_canvas_tap(page, 120, 163)
+    rid = opened.value.json()["id"]
+    assert opened.value.json()["source_session_id"] == sid
+    wrist_screen(page, "replay")
+    with page.expect_response(
+        lambda r: r.url.endswith(f"/api/replays/{rid}") and r.request.method == "GET"
+    ) as stepped:
+        wrist_canvas_tap(page, 162, 256)
+    assert stepped.value.json()["cursor_us"] == 1_000_000
+    with page.expect_response(
+        lambda r: r.url.endswith(f"/api/replays/{rid}") and r.request.method == "GET"
+    ) as sought:
+        wrist_canvas_tap(page, 120, 103)
+    assert 66_000_000 <= sought.value.json()["cursor_us"] <= 68_000_000
+    with page.expect_response(
+        lambda r: r.url.endswith(f"/api/replays/{rid}") and r.request.method == "GET"
+    ) as restarted:
+        wrist_canvas_tap(page, 36, 256)
+    assert restarted.value.json()["cursor_us"] == 0
+    with page.expect_response(
+        lambda r: r.url.endswith(f"/api/replays/{rid}/commands") and r.request.method == "POST"
+    ) as closed:
+        wrist_canvas_tap(page, 20, 18)
+    assert closed.value.ok
+    assert page.request.get(app_url + f"/api/replays/{rid}").status == 404
+    assert (
+        page.request.get(app_url + f"/api/sessions/{sid}").json()["key_windows"] == completed["key_windows"]
+    )
+    assert not page.errors
