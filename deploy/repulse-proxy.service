@@ -1,0 +1,35 @@
+[Unit]
+Description=RePulse standalone authenticated reverse proxy
+Wants=repulse.service
+After=network.target repulse.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+# The master runs as root; nginx.conf drops worker privileges to www-data.
+RuntimeDirectory=repulse-proxy
+RuntimeDirectoryMode=0755
+LogsDirectory=repulse-proxy
+LogsDirectoryMode=0750
+ExecStartPre=/usr/bin/test -s /etc/repulse/htpasswd
+ExecStartPre=/usr/sbin/nginx -t -c /etc/repulse/nginx.conf
+ExecStart=/usr/sbin/nginx -c /etc/repulse/nginx.conf -g "daemon off;"
+ExecReload=/usr/sbin/nginx -t -c /etc/repulse/nginx.conf
+ExecReload=/usr/sbin/nginx -c /etc/repulse/nginx.conf -s reload
+KillSignal=SIGQUIT
+KillMode=mixed
+TimeoutStopSec=15s
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+UMask=0027
+CPUQuota=100%
+MemoryMax=256M
+TasksMax=32
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target

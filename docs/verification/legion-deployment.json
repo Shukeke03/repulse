@@ -1,0 +1,24 @@
+{
+  "url": "https://legion-wsl.tailb5f334.ts.net:8443",
+  "public_relay_ip": "103.84.155.217",
+  "authenticated": true,
+  "default_home": "wrist",
+  "live_websocket_frames": 160,
+  "replay_websocket_frames": 1,
+  "qemu_session_id": "f107ed5a13ca48d586f4df84554d0f7c",
+  "qemu_state": "COMPLETED",
+  "duration_us": 134000000,
+  "key_windows": 3,
+  "javascript_errors": [],
+  "verified_at": "2026-11-02T16:12:37+08:00",
+  "server": "Ubuntu 24.04 / WSL2 x86_64",
+  "unit_api_tests": 73,
+  "unauthenticated_http_status": 401,
+  "authenticated_http_status": 200,
+  "system_services": [
+    "repulse.service",
+    "repulse-proxy.service"
+  ],
+  "windows_logon_task": "RePulse-Legion-WSL",
+  "existing_443_service_preserved": true
+}

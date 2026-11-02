@@ -1,0 +1,41 @@
+[Unit]
+Description=RePulse FreeRTOS/QEMU application
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=shuxing
+Group=shuxing
+WorkingDirectory=/home/shuxing/repulse
+Environment=PATH=/home/shuxing/repulse/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=REPULSE_DATA_DIR=/home/shuxing/.local/share/repulse
+Environment=REPULSE_DATASETS_DIR=/home/shuxing/repulse/data/public
+Environment=OPENBLAS_NUM_THREADS=1
+Environment=OMP_NUM_THREADS=1
+Environment=MKL_NUM_THREADS=1
+Environment=NUMEXPR_NUM_THREADS=1
+ExecStartPre=/usr/bin/test -x /usr/bin/qemu-system-arm
+ExecStartPre=/usr/bin/test -r /home/shuxing/repulse/firmware/build/qemu/repulse.elf
+ExecStart=/home/shuxing/repulse/.venv/bin/python -m uvicorn backend.api.app:app --host 127.0.0.1 --port 8765 --workers 1 --proxy-headers --forwarded-allow-ips=127.0.0.1
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+# Keep the repository, datasets and QEMU semihosting files accessible in /home.
+# ProtectHome=true/yes would hide paths required by this deployment.
+CPUQuota=200%
+MemoryMax=2G
+TasksMax=128
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target

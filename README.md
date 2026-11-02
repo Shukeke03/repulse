@@ -128,4 +128,6 @@ VS Code 可打开 `repulse.code-workspace`，选择 `repulse` 环境的 Python �
 
 目录和文件的详细职责见 [项目结构](docs/PROJECT_STRUCTURE.md)。`REPULSE_DATA_DIR` 可指定运行记录目录，`REPULSE_DATASETS_DIR` 可指定公开数据根目录。备份运行记录时，应同时保留 SQLite 索引与记录文件。
 
+Legion / WSL2 的公网部署使用 systemd 常驻、独立 Nginx 整站认证和 Tailscale Funnel HTTPS，安装、更新与回滚步骤见 [部署说明](docs/DEPLOYMENT.md)。
+
 如需通过 SSH 访问远程主机上的本地服务，可执行 `ssh -L 8765:127.0.0.1:8765 user@server`，将 `user@server` 替换为实际用户名和主机地址，再访问本机 `127.0.0.1:8765`。

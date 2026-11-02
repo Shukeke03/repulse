@@ -7,6 +7,7 @@ import hashlib
 import inspect
 import json
 import math
+import multiprocessing
 import os
 import platform
 import shutil
@@ -174,7 +175,8 @@ class Service:
     # 逐组执行比较，持续保存进度并保留完整配对。
     async def compare(self, job):
         if self.pool is None:
-            self.pool = ProcessPoolExecutor(max_workers=1)
+            # Linux也使用spawn，避免从已有QEMU读取线程的服务fork并继承存储与锁句柄。
+            self.pool = ProcessPoolExecutor(max_workers=1, mp_context=multiprocessing.get_context("spawn"))
         config = job["config"]
         try:
             loop = asyncio.get_running_loop()

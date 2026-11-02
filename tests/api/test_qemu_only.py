@@ -87,3 +87,47 @@ def test_default_api_session_runs_actual_firmware_and_reports_its_tasks(tmp_path
         assert cancelled.status_code == 200, cancelled.text
         assert engine.state == "CANCELLED"
         assert client.get("/api/system/status").json()["execution_mode"] is None
+
+
+@pytest.mark.skipif(not availability() or not list_datasets(), reason="Build QEMU and download public data")
+def test_comparison_completes_while_actual_qemu_and_its_reader_thread_keep_running(tmp_path):
+    with TestClient(create_app(tmp_path)) as client:
+        created = post(client, "/sessions", {"name": "固件与后台比较并发验收", "speed": 1})
+        assert created.status_code == 200, created.text
+        snapshot = created.json()
+        engine = client.app.state.service.engine
+        assert type(engine) is FirmwarePort
+        started = post(
+            client,
+            f"/sessions/{engine.id}/commands",
+            {"type": "start_prepare", "expected_revision": snapshot["revision"]},
+        )
+        assert started.status_code == 200, started.text
+        deadline = time.monotonic() + 10
+        while not engine.samples and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert engine.samples and engine._reader.is_alive()
+        before = client.get("/api/system/status").json()["clock"]["engine_time_us"]
+
+        compared = post(client, "/comparisons", {"dataset_ids": [engine.dataset["id"]], "phases": [0]})
+        assert compared.status_code == 200, compared.text
+        job_id = compared.json()["id"]
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            job = client.get(f"/api/comparisons/{job_id}").json()
+            if job["status"] not in {"RUNNING", "CANCELLING"}:
+                break
+            time.sleep(0.05)
+        assert job["status"] == "COMPLETED", job
+        assert job["progress"] == {"completed": 3, "failed": 0, "total": 3}
+        assert len(job["metrics"]) == 3
+        status = client.get("/api/system/status").json()
+        assert status["rtos_running"] and len(status["tasks"]) == 6
+        assert status["clock"]["engine_time_us"] > before
+        assert engine.process.poll() is None and engine._reader.is_alive()
+        cancelled = post(
+            client,
+            f"/sessions/{engine.id}/commands",
+            {"type": "cancel", "expected_revision": engine.revision},
+        )
+        assert cancelled.status_code == 200, cancelled.text

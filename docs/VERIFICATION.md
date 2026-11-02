@@ -2,6 +2,14 @@
 
 本文保留 2026 年 10 月 27 日基础版本与 2026 年 11 月 2 日腕端界面更新的验证结果。项目版本 0.2.0，验证平台为 macOS Apple Silicon、Miniforge Python 3.12。测试报告记录当次运行结果；后续修改应重新执行相应测试。
 
+## 2026 年 11 月 2 日：Legion 公网部署
+
+在 Legion 的 Ubuntu 24.04 / WSL2 x86_64、Python 3.12 环境中构建 ARM 固件并验证数据，运行 **73 项单元和接口测试全部通过**，77.79 秒，0 失败、0 跳过；有一条第三方 TestClient 的弃用提示。报告见 [legion-unit-api.xml](verification/legion-unit-api.xml)。Linux 比较进程池显式使用 `spawn`，新增用例验证实际 QEMU 采样期间后台三策略比较能完成，固件任务和记录时钟持续运行。
+
+通过公网 DNS 返回的 Funnel relay 地址访问站点，验证有效 HTTPS、未认证的首页/API/文档返回 401、正确认证返回 200、无关 Origin 被拒绝。Chromium 公网检查完成首页键盘操作、QEMU 的 134 秒完整记录与三项窗口归档、实时 WebSocket 和独立回放逐秒操作，未产生 JavaScript 错误。摘要见 [legion-deployment.json](verification/legion-deployment.json)。认证文件与真实密码没有提交到仓库。
+
+应用与代理由 systemd 常驻，Funnel 只新增 8443，现有私有 443 服务保留。Windows 登录任务与 WSL 保活进程已确认运行；未为验收强制重启 Windows。部署路径、服务操作及可用性边界见 [部署说明](DEPLOYMENT.md)。
+
 ## 2026 年 11 月 2 日：默认腕端首页与 QEMU 唯一模式
 
 最新合并测试为 **81 passed**，138.38 秒，0 失败、0 错误、0 跳过，包括 55 项单元测试、17 项接口测试和 9 项 Chromium 测试。报告见 [qemu-home-all-tests.xml](verification/qemu-home-all-tests.xml)。
