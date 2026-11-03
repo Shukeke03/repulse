@@ -1,5 +1,5 @@
 {
-  "record_type": "historical_verification_with_current_access_status",
+  "record_type": "historical_verification",
   "historical_verification": {
     "authenticated": true,
     "default_home": "wrist",
@@ -22,7 +22,7 @@
     "windows_logon_task_verified": true,
     "existing_private_443_service_preserved": true
   },
-  "current_access_status": {
+  "historical_access_check": {
     "checked_on": "2026-11-03",
     "online_preview": "cancelled",
     "repulse_funnel_8443": "disabled_and_verified",
@@ -31,5 +31,5 @@
     "optional_proxy_listen": "127.0.0.1:8766",
     "recommended_access": "local_browser_or_ssh_port_forward"
   },
-  "note": "The 2026-11-02 HTTPS and authentication results describe a historical verification only. The public preview was subsequently cancelled; its former hostname, relay address and unnecessary host/session identifiers are omitted. Historical results do not assert current public availability or authentication settings."
+  "note": "Each section records the configuration observed at the time of its check."
 }

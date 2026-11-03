@@ -19,7 +19,7 @@ Chromium 浏览器回归 **12 passed**，109.51 秒，0 失败、0 跳过。报�
 
 通过公网 DNS 返回的 Funnel relay 地址访问站点，验证有效 HTTPS、未认证的首页/API/文档返回 401、正确认证返回 200、无关 Origin 被拒绝。Chromium 公网检查完成首页键盘操作、QEMU 的 134 秒完整记录与三项窗口归档、实时 WebSocket 和独立回放逐秒操作，未产生 JavaScript 错误。摘要见 [legion-deployment.json](verification/legion-deployment.json)。认证文件与真实密码没有提交到仓库。
 
-以上为当日测试结果。2026 年 11 月 3 日已关闭 RePulse 的公网入口，并核实应用和代理仅监听回环地址。私有访问方式见[部署说明](DEPLOYMENT.md)。
+以上为当日测试结果。自托管和 SSH 访问方式见[部署说明](DEPLOYMENT.md)。
 
 ## 2026 年 11 月 2 日：默认腕端首页与 QEMU 唯一模式
 

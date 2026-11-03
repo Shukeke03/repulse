@@ -1,6 +1,6 @@
 # Ubuntu / WSL2 私有部署与运维
 
-在线预览已取消，项目不再提供公网体验入口。2026 年 11 月 3 日已关闭并核验 RePulse 原有的 8443 公网转发；已有的 443 服务仍仅供私有网络访问。应用与现存代理均只监听回环地址。
+仓库提供演示录屏和自托管说明。部署者自行管理访问地址。以下步骤将应用和可选代理绑定到回环地址。
 
 默认通过部署主机本地浏览器或 SSH 端口转发使用：
 
@@ -97,7 +97,7 @@ sudo systemctl reload repulse-proxy.service
 
 通过本地或 SSH 连接检查腕端首页、工作台、API 文档、一次完整 QEMU 演示和独立回放。浏览器 Network / WS 中的 `/api/live` 和回放连接应返回 `101` 并持续接收消息。界面使用当前页面地址连接 WebSocket，HTTP 本地访问使用 `ws://`。
 
-若主机还运行 Tailscale，可用 `tailscale serve status` 和 `tailscale funnel status` 只读核对：RePulse 的 8443 公网入口应保持关闭，原有 443 私有服务保持不变。应用更新和回滚均不重置其他服务的网络配置，也不恢复已取消的公网入口。
+若主机还运行 Tailscale，可用 `tailscale serve status` 和 `tailscale funnel status` 核对各服务的实际访问范围。
 
 ## 更新与回滚
 
@@ -141,7 +141,7 @@ sudo systemctl start repulse.service
 curl --fail http://127.0.0.1:8765/api/bootstrap
 ```
 
-代码回滚不会覆盖新产生的记录。只有确认需要恢复数据时，才在应用停止后另外恢复 `runtime.tar.gz`，并先保留当前运行目录。上述回滚将 Git 切换到指定提交；后续恢复跟踪主分支时执行 `git switch main`。代理或访问方式的回滚不能重新启用已取消的在线预览。
+代码回滚不会覆盖新产生的记录。只有确认需要恢复数据时，才在应用停止后另外恢复 `runtime.tar.gz`，并先保留当前运行目录。上述回滚将 Git 切换到指定提交；后续恢复跟踪主分支时执行 `git switch main`。
 
 ## Windows 与 WSL 常驻
 
