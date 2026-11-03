@@ -1,24 +1,35 @@
 {
-  "url": "https://legion-wsl.tailb5f334.ts.net:8443",
-  "public_relay_ip": "103.84.155.217",
-  "authenticated": true,
-  "default_home": "wrist",
-  "live_websocket_frames": 160,
-  "replay_websocket_frames": 1,
-  "qemu_session_id": "f107ed5a13ca48d586f4df84554d0f7c",
-  "qemu_state": "COMPLETED",
-  "duration_us": 134000000,
-  "key_windows": 3,
-  "javascript_errors": [],
-  "verified_at": "2026-11-02T16:12:37+08:00",
-  "server": "Ubuntu 24.04 / WSL2 x86_64",
-  "unit_api_tests": 73,
-  "unauthenticated_http_status": 401,
-  "authenticated_http_status": 200,
-  "system_services": [
-    "repulse.service",
-    "repulse-proxy.service"
-  ],
-  "windows_logon_task": "RePulse-Legion-WSL",
-  "existing_443_service_preserved": true
+  "record_type": "historical_verification_with_current_access_status",
+  "historical_verification": {
+    "authenticated": true,
+    "default_home": "wrist",
+    "live_websocket_frames": 160,
+    "replay_websocket_frames": 1,
+    "qemu_state": "COMPLETED",
+    "duration_us": 134000000,
+    "key_windows": 3,
+    "javascript_errors": [],
+    "verified_at": "2026-11-02T16:12:37+08:00",
+    "server": "Ubuntu 24.04 / WSL2 x86_64",
+    "unit_api_tests": 73,
+    "unauthenticated_http_status": 401,
+    "authenticated_http_status": 200,
+    "system_services": [
+      "repulse.service",
+      "repulse-proxy.service"
+    ],
+    "access_mode": "former_authenticated_https_preview",
+    "windows_logon_task_verified": true,
+    "existing_private_443_service_preserved": true
+  },
+  "current_access_status": {
+    "checked_on": "2026-11-03",
+    "online_preview": "cancelled",
+    "repulse_funnel_8443": "disabled_and_verified",
+    "existing_443_service": "preserved_tailnet_only",
+    "application_listen": "127.0.0.1:8765",
+    "optional_proxy_listen": "127.0.0.1:8766",
+    "recommended_access": "local_browser_or_ssh_port_forward"
+  },
+  "note": "The 2026-11-02 HTTPS and authentication results describe a historical verification only. The public preview was subsequently cancelled; its former hostname, relay address and unnecessary host/session identifiers are omitted. Historical results do not assert current public availability or authentication settings."
 }

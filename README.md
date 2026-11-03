@@ -6,7 +6,7 @@ RePulse 是一个面向运动恢复监护的可穿戴腕表课程项目。默认
 
 ## 演示
 
-[在线体验：直接操作腕端主页](https://legion-wsl.tailb5f334.ts.net:8443/)。在手表屏幕内打开菜单、新建演示、查看恢复过程和回放记录；手机可直接触屏操作，电脑可使用鼠标或键盘。
+下面的录屏展示了如何在手表上开始演示、查看恢复过程和回放记录。想亲自操作，可以按[安装与启动](#安装与启动)在本机运行。
 
 https://github.com/user-attachments/assets/faf840e1-f300-498f-b563-bc6dfeb435d6
 
@@ -21,7 +21,7 @@ https://github.com/user-attachments/assets/faf840e1-f300-498f-b563-bc6dfeb435d6
 | 计算 | C 信号处理、固定窗口与质量规则在 FreeRTOS/QEMU 中运行 | 接入实际采样源，验证时序、资源占用和功耗 |
 | 板级适配 | QEMU 运行路径与可交叉编译的 STM32 目标 | 完成传感器、显示与输入驱动，并进行实机联调 |
 
-当前腕端交互已可在网页完整体验，STM32 目标已通过构建；显示、触摸、按键与传感器尚未上板验证。页面与输入设计见 [腕端界面说明](docs/WRIST_UI.md)，固件结构及构建方法见 [固件说明](docs/FIRMWARE.md)。
+本机运行后即可在浏览器中操作腕端界面。STM32 目标已通过构建，显示、触摸、按键与传感器尚未上板验证。页面与输入设计见 [腕端界面说明](docs/WRIST_UI.md)，固件结构及构建方法见 [固件说明](docs/FIRMWARE.md)。
 
 ## 功能
 
@@ -145,6 +145,6 @@ VS Code 可打开 `repulse.code-workspace`，选择 `repulse` 环境的 Python �
 
 目录和文件的详细职责见 [项目结构](docs/PROJECT_STRUCTURE.md)。`REPULSE_DATA_DIR` 可指定运行记录目录，`REPULSE_DATASETS_DIR` 可指定公开数据根目录。备份运行记录时，应同时保留 SQLite 索引与记录文件。
 
-Legion / WSL2 的公网部署使用 systemd、独立 Nginx 和 Tailscale Funnel HTTPS。服务器目前按用户要求临时免密码，后续更新保留该覆盖；认证模板、安装、更新与回滚步骤见 [部署说明](docs/DEPLOYMENT.md)。
+WSL2 主机上的服务绑定到本机回环地址。安装和私有访问方式见[部署说明](docs/DEPLOYMENT.md)。
 
 如需通过 SSH 访问远程主机上的本地服务，可执行 `ssh -L 8765:127.0.0.1:8765 user@server`，将 `user@server` 替换为实际用户名和主机地址，再访问本机 `127.0.0.1:8765`。

@@ -1,6 +1,6 @@
 # 腕端主页演示
 
-[播放或下载视频](repulse-demo.mp4) · [在线操作手表](https://legion-wsl.tailb5f334.ts.net:8443/)
+[播放或下载视频](repulse-demo.mp4) · [在本机运行](../../README.md#安装与启动)
 
 ![腕端波形与固件处理演示](repulse-demo-poster.png)
 
